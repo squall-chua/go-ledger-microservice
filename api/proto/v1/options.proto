@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/squall-chua/go-ledger-microservice/api/v1;v1";
+
+import "google/protobuf/descriptor.proto";
+
+message AuthRule {
+  repeated string required_scopes = 1;
+  repeated string required_roles = 2;
+}
+
+extend google.protobuf.MethodOptions {
+  AuthRule rule = 50000;
+}

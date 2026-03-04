@@ -1,0 +1,14 @@
+version: v1
+plugins:
+  - plugin: go
+    out: .
+    opt: paths=source_relative
+  - plugin: go-grpc
+    out: .
+    opt: paths=source_relative
+  - plugin: grpc-gateway
+    out: .
+    opt: paths=source_relative
+  - plugin: openapiv2
+    out: api/swagger
+    path: ["go", "tool", "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2"]

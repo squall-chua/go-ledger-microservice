@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+package v1;
+
+option go_package = "github.com/squall-chua/go-ledger-microservice/api/v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+import "google/type/money.proto";
+import "api/proto/v1/options.proto";
+
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;
+  ACCOUNT_TYPE_ASSETS = 1;
+  ACCOUNT_TYPE_LIABILITIES = 2;
+  ACCOUNT_TYPE_EQUITIES = 3;
+  ACCOUNT_TYPE_INCOMES = 4;
+  ACCOUNT_TYPE_EXPENSES = 5;
+}
+
+message AccountName {
+  AccountType type = 1;
+  string user = 2; // Optional, can be empty or "*".
+  string name = 3; // The specific account name or wildcard "*".
+}
+
+message Posting {
+  string id = 1;
+  string transaction_id = 2;
+  AccountName account = 3;
+  google.type.Money amount = 4; 
+  google.type.Money balance = 5; 
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message Transaction {
+  string id = 1;
+  string idempotency_key = 2;
+  google.protobuf.Timestamp date = 3;
+  string note = 4;
+  map<string, google.protobuf.Any> metadata = 5;
+  repeated Posting postings = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message RecordTransactionRequest {
+  string idempotency_key = 1;
+  google.protobuf.Timestamp date = 2;
+  string note = 3;
+  map<string, google.protobuf.Any> metadata = 4;
+  
+  message PostingInput {
+    AccountName account = 1;
+    google.type.Money amount = 2; 
+  }
+  repeated PostingInput postings = 5;
+  repeated AccountName verify_non_negative_balances = 6;
+}
+
+message RecordTransactionResponse {
+  Transaction transaction = 1;
+}
+
+message GetAccountBalanceRequest {
+  AccountName account = 1; // Structured target. Empty user or name fields will be treated as wildcards like `*`.
+  string currency = 2; // Optional currency filter
+}
+
+message GetAccountBalanceResponse {
+  repeated AccountBalance balances = 1;
+}
+
+message AccountBalance {
+  AccountName account = 1;
+  google.type.Money balance = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message MetadataFilter {
+  enum Operator {
+    OPERATOR_UNSPECIFIED = 0;
+    OPERATOR_EQUAL = 1;
+    OPERATOR_NOT_EQUAL = 2;
+    OPERATOR_GREATER_THAN = 3;
+    OPERATOR_LESS_THAN = 4;
+    OPERATOR_GREATER_THAN_OR_EQUAL = 5;
+    OPERATOR_LESS_THAN_OR_EQUAL = 6;
+    OPERATOR_PARTIAL_MATCH = 7; // e.g., String contains or regex
+  }
+
+  string key = 1; // The metadata key to match on
+  Operator operator = 2;
+  google.protobuf.Any value = 3; // The value to compare against
+}
+
+message TransactionFilter {
+  repeated string id = 1;
+  repeated string idempotency_key = 2;
+  google.protobuf.Timestamp start_date = 3;
+  google.protobuf.Timestamp end_date = 4;
+  string note = 5; // Partial match on the transaction note (wildcards supported by the repository adapter)
+  repeated MetadataFilter metadata_filters = 6;
+  string currency = 7; // Optional currency filter for transactions
+}
+
+message ListTransactionsRequest {
+  TransactionFilter filter = 1;
+  int32 page_size = 2;
+  int32 page_number = 3;
+  bool order_by_desc = 4; // If true, sort descending (newest first). If false, sort ascending.
+}
+
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  int64 total_count = 2;
+}
+
+message PostingFilter {
+  TransactionFilter transaction_filter = 1; // Carry over all transaction-level filters to filter the postings.
+  repeated string id = 2;
+  repeated string transaction_id = 3;
+  AccountName account = 4; // Structured target. Unspecified account type, empty user or name fields will be treated as wildcards like `*`.
+}
+
+message ListPostingsRequest {
+  PostingFilter filter = 1;
+  int32 page_size = 2;
+  int32 page_number = 3;
+  bool order_by_desc = 4; // If true, sort descending (newest first). If false, sort ascending.
+}
+
+message ListPostingsResponse {
+  repeated Posting postings = 1;
+  int64 total_count = 2;
+}
+
+service LedgerService {
+  rpc RecordTransaction(RecordTransactionRequest) returns (RecordTransactionResponse) {
+    option (google.api.http) = {
+      post: "/v1/ledger/transactions"
+      body: "*"
+    };
+    option (auth.v1.rule) = {
+      required_roles: ["admin", "user"]
+    };
+  }
+
+  rpc GetAccountBalance(GetAccountBalanceRequest) returns (GetAccountBalanceResponse) {
+    option (google.api.http) = {
+      // Changed to POST to allow sending the structured AccountName in the body,
+      // as nested path parameters in GET requests can be tricky with wildcard support.
+      post: "/v1/ledger/accounts/balance"
+      body: "*"
+    };
+    option (auth.v1.rule) = {
+      required_roles: ["admin", "user"]
+    };
+  }
+
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse) {
+    option (google.api.http) = {
+      post: "/v1/ledger/transactions/query"
+      body: "*"
+    };
+    option (auth.v1.rule) = {
+      required_roles: ["admin"]
+    };
+  }
+
+  rpc ListPostings(ListPostingsRequest) returns (ListPostingsResponse) {
+    option (google.api.http) = {
+      post: "/v1/ledger/postings/query"
+      body: "*"
+    };
+    option (auth.v1.rule) = {
+      required_roles: ["admin", "user"]
+    };
+  }
+}
