@@ -165,7 +165,7 @@ Retrieve all balances with an empty query struct.
 curl -X POST http://localhost:8080/v1/ledger/accounts/balance \
   -H "Authorization: Bearer $LEDGER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{}"
+  -d '{"account": {}}'
 ```
 
 To limit it to a specific account root (e.g., all `ASSETS` - numerical enum `1` in proto):
@@ -177,3 +177,38 @@ curl -X POST http://localhost:8080/v1/ledger/accounts/balance \
     "account": { "type": 1 }
   }'
 ```
+
+## Running the Web UI
+
+The project now includes a beautiful, modern Nuxt.js 3 Web UI that allows you to interact with the Ledger microservice dynamically in your browser. It natively supports Dark Mode.
+
+### 1. Setup & Installation
+Ensure you have `Node.js` installed. The UI is located in the `webui` folder.
+
+```bash
+cd webui
+npm install
+```
+
+### 2. Start the Development Server
+Make sure your Go Ledger microservice backend is running concurrently on port `8080` (as shown above).
+
+```bash
+# Inside the webui folder
+npm run dev
+```
+
+The Web UI will be accessible at **http://localhost:3000**. The Nuxt application is configured with a Nitro proxy (`/api/**` -> `http://127.0.0.1:8080/**`) to seamlessly connect to the backend API without CORS issues.
+
+### 3. Using the Web UI
+
+1. **Authentication:**
+   When you first load the App, you will be directed to `/login`. Generate a JWT token via `jwt.io` (as explained in the *API Testing* section) with the `admin` role, and paste it into the UI login form. The UI will store your token securely in `localStorage`.
+2. **Dashboard Overview (`/`)**: 
+   View high-level totals grouping all Assets, Revenues, and Expenses into intuitive cards.
+3. **Account Balances (`/balances`)**:
+   View a clean data-table of all hierarchical accounts in your ledger and their current running balances with currency indicators.
+4. **Transaction Register (`/transactions`)**:
+   A chronological timeline of every transaction recorded, displaying the descriptive note alongside its multi-layered postings.
+5. **Record Transaction Form (`/transactions/new`)**:
+   An interactive form ensuring double-entry principles. You can add as many debit/credit postings as required, and the UI will validate that the running sum equals zero before allowing you to commit the transaction to the backend.

@@ -11,6 +11,7 @@ import (
 	"github.com/squall-chua/go-ledger-microservice/internal/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type ledgerService struct {
@@ -45,6 +46,10 @@ func NewLedgerService(repo repository.LedgerRepository) pb.LedgerServiceServer {
 func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTransactionRequest) (*pb.RecordTransactionResponse, error) {
 	if req.IdempotencyKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+
+	if req.Date == nil {
+		req.Date = timestamppb.Now()
 	}
 
 	if len(req.Postings) == 0 {
