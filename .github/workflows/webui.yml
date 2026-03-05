@@ -1,9 +1,19 @@
-name: ci
+name: webui
 
-on: push
+on:
+  push:
+    paths:
+      - 'webui/**'
+  pull_request:
+    paths:
+      - 'webui/**'
+
+defaults:
+  run:
+    working-directory: webui
 
 jobs:
-  ci:
+  build:
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -13,16 +23,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
 
       - name: Install node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install
