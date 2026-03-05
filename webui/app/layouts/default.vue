@@ -4,16 +4,19 @@
     <aside class="w-full sm:w-64 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm sm:min-h-screen flex flex-col">
       <div class="p-6 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center">
         <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary-500 to-primary-700 dark:from-primary-400 dark:to-primary-600 truncate">
-          <UIcon name="i-lucide-layers" class="mr-2 translate-y-[-2px] inline-block text-primary-500"/>
+          <UIcon
+            name="i-lucide-layers"
+            class="mr-2 translate-y-[-2px] inline-block text-primary-500"
+          />
           Go Ledger
         </h1>
-        
+
         <!-- Mobile menu button -->
-        <UButton 
-          icon="i-lucide-menu" 
-          color="neutral" 
-          variant="ghost" 
-          class="sm:hidden" 
+        <UButton
+          icon="i-lucide-menu"
+          color="neutral"
+          variant="ghost"
+          class="sm:hidden"
           @click="isMobileMenuOpen = !isMobileMenuOpen"
         />
       </div>
@@ -45,14 +48,14 @@
             <div class="w-8 h-8" />
           </template>
         </ClientOnly>
-        
+
         <UButton
           v-if="token"
           icon="i-lucide-log-out"
           color="error"
           variant="ghost"
-          @click="handleLogout"
           tooltip="Logout"
+          @click="handleLogout"
         />
       </div>
     </aside>

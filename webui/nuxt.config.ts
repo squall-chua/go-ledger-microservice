@@ -11,19 +11,17 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
-  icon: {
-    provider: 'server',
-    localApiEndpoint: '/_nuxt_icon',
-    serverBundle: {
-      collections: ['lucide', 'heroicons', 'simple-icons']
-    }
-  },
-
   routeRules: {
     '/': { prerender: true }
   },
 
   compatibilityDate: '2025-01-15',
+
+  nitro: {
+    routeRules: {
+      '/api/**': { proxy: 'http://127.0.0.1:8080/**' }
+    }
+  },
 
   eslint: {
     config: {
@@ -34,9 +32,11 @@ export default defineNuxtConfig({
     }
   },
 
-  nitro: {
-    routeRules: {
-      '/api/**': { proxy: 'http://127.0.0.1:8080/**' }
+  icon: {
+    provider: 'server',
+    localApiEndpoint: '/_nuxt_icon',
+    serverBundle: {
+      collections: ['lucide', 'heroicons', 'simple-icons']
     }
   }
 })

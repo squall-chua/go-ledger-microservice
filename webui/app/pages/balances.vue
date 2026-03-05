@@ -2,10 +2,20 @@
   <div>
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Account Balances</h1>
-        <p class="text-gray-500 mt-1">View your current ledgers and their running balances.</p>
+        <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+          Account Balances
+        </h1>
+        <p class="text-gray-500 mt-1">
+          View your current ledgers and their running balances.
+        </p>
       </div>
-      <UButton color="neutral" variant="soft" icon="i-lucide-refresh-cw" @click="fetchData" :loading="loading">
+      <UButton
+        color="neutral"
+        variant="soft"
+        icon="i-lucide-refresh-cw"
+        :loading="loading"
+        @click="fetchData"
+      >
         Refresh
       </UButton>
     </div>
@@ -14,47 +24,89 @@
     <UCard class="mb-6 shadow-sm border-gray-200 dark:border-gray-800">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
         <UFormField label="Account Type">
-          <USelect v-model="filters.type" :items="accountTypeOptions" class="w-full" />
+          <USelect
+            v-model="filters.type"
+            :items="accountTypeOptions"
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="Currency">
-          <USelect v-model="filters.currency" :items="CURRENCY_OPTIONS" class="w-full" />
+          <USelect
+            v-model="filters.currency"
+            :items="CURRENCY_OPTIONS"
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="User">
-          <UInput v-model="filters.user" placeholder="Filter user..." class="w-full" />
+          <UInput
+            v-model="filters.user"
+            placeholder="Filter user..."
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="Account Name">
-          <UInput v-model="filters.name" placeholder="Filter name..." class="w-full" />
+          <UInput
+            v-model="filters.name"
+            placeholder="Filter name..."
+            class="w-full"
+          />
         </UFormField>
       </div>
     </UCard>
 
     <!-- Data Table -->
-    <UCard class="shadow-sm border-gray-200 dark:border-gray-800" :ui="{ body: 'p-0 sm:p-0' }">
+    <UCard
+      class="shadow-sm border-gray-200 dark:border-gray-800"
+      :ui="{ body: 'p-0 sm:p-0' }"
+    >
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="border-b border-gray-200 dark:border-gray-800 text-sm font-medium text-gray-500 dark:text-gray-400">
-              <th class="p-4 font-medium">Account Path</th>
-              <th class="p-4 font-medium">Balance</th>
-              <th class="p-4 font-medium">Last Updated</th>
+              <th class="p-4 font-medium">
+                Account Path
+              </th>
+              <th class="p-4 font-medium">
+                Balance
+              </th>
+              <th class="p-4 font-medium">
+                Last Updated
+              </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
             <tr v-if="loading">
-              <td colspan="3" class="p-8 text-center text-gray-500">Loading balances...</td>
+              <td
+                colspan="3"
+                class="p-8 text-center text-gray-500"
+              >
+                Loading balances...
+              </td>
             </tr>
             <tr v-else-if="filteredBalances.length === 0">
-              <td colspan="3" class="p-8 text-center text-gray-500">No account records found</td>
+              <td
+                colspan="3"
+                class="p-8 text-center text-gray-500"
+              >
+                No account records found
+              </td>
             </tr>
-            <tr v-else v-for="row in filteredBalances" :key="row.account?.name + row.account?.type" class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+            <tr
+              v-for="row in filteredBalances"
+              v-else
+              :key="row.account?.name + row.account?.type"
+              class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
               <td class="p-4 font-medium text-gray-900 dark:text-white">
                 {{ formatAccountType(row.account?.type) }}:{{ row.account?.user || '*' }}:{{ row.account?.name || '*' }}
               </td>
               <td class="p-4">
-                <span :class="[
-                  'font-semibold',
-                  isNegative(row.balance?.units) ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
-                ]">
+                <span
+                  :class="[
+                    'font-semibold',
+                    isNegative(row.balance?.units) ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
+                  ]"
+                >
                   {{ formatCurrency(row.balance?.units, row.balance?.currencyCode) }}
                 </span>
               </td>
@@ -98,7 +150,7 @@ const formatCurrency = (amount: number | string, currency: string = 'USD') => {
 }
 
 const filteredBalances = computed(() => {
-  return rawBalances.value.filter(b => {
+  return rawBalances.value.filter((b) => {
     let matchType = true
     if (filters.value.type !== 'ALL') {
       matchType = formatAccountType(b.account?.type) === formatAccountType(filters.value.type)

@@ -2,54 +2,132 @@
   <div>
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Transaction Register</h1>
-        <p class="text-gray-500 mt-1">Chronological history of all ledger entries.</p>
+        <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+          Transaction Register
+        </h1>
+        <p class="text-gray-500 mt-1">
+          Chronological history of all ledger entries.
+        </p>
       </div>
       <div class="flex gap-3">
-        <UButton color="neutral" variant="soft" icon="i-lucide-filter" @click="isFiltersOpen = !isFiltersOpen">
+        <UButton
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-filter"
+          @click="isFiltersOpen = !isFiltersOpen"
+        >
           {{ isFiltersOpen ? 'Hide Filters' : 'Filter' }}
         </UButton>
-        <UButton color="neutral" variant="soft" icon="i-lucide-refresh-cw" @click="fetchData" :loading="loading">Refresh</UButton>
-        <UButton color="primary" to="/transactions/new" icon="i-lucide-plus">Add Transaction</UButton>
+        <UButton
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-refresh-cw"
+          :loading="loading"
+          @click="fetchData"
+        >
+          Refresh
+        </UButton>
+        <UButton
+          color="primary"
+          to="/transactions/new"
+          icon="i-lucide-plus"
+        >
+          Add Transaction
+        </UButton>
       </div>
     </div>
 
     <!-- Filters -->
-    <UCard v-show="isFiltersOpen" class="mb-8 shadow-sm border-gray-200 dark:border-gray-800">
+    <UCard
+      v-show="isFiltersOpen"
+      class="mb-8 shadow-sm border-gray-200 dark:border-gray-800"
+    >
       <div class="grid grid-cols-4 gap-4 items-end">
         <UFormField label="Start Date">
-          <UInput v-model="filters.start_date" type="datetime-local" class="w-full" />
+          <UInput
+            v-model="filters.start_date"
+            type="datetime-local"
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="End Date">
-          <UInput v-model="filters.end_date" type="datetime-local" class="w-full" />
+          <UInput
+            v-model="filters.end_date"
+            type="datetime-local"
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="Currency">
-          <USelect v-model="filters.currency" :items="CURRENCY_OPTIONS" class="w-full" />
+          <USelect
+            v-model="filters.currency"
+            :items="CURRENCY_OPTIONS"
+            class="w-full"
+          />
         </UFormField>
         <UFormField label="Sort Order">
-          <USelect v-model="filters.sort" :items="sortOptions" class="w-full" />
+          <USelect
+            v-model="filters.sort"
+            :items="sortOptions"
+            class="w-full"
+          />
         </UFormField>
       </div>
       <div class="mt-4 flex justify-end gap-3">
-        <UButton color="neutral" variant="ghost" @click="clearFilters">Clear Filters</UButton>
-        <UButton color="neutral" variant="soft" @click="applyFilters">Apply Filters</UButton>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          @click="clearFilters"
+        >
+          Clear Filters
+        </UButton>
+        <UButton
+          color="neutral"
+          variant="soft"
+          @click="applyFilters"
+        >
+          Apply Filters
+        </UButton>
       </div>
     </UCard>
 
     <!-- Data Table -->
     <UCard class="shadow-sm border-gray-200 dark:border-gray-800">
-      <div v-if="loading" class="space-y-4 p-4">
-        <USkeleton class="h-12 w-full" v-for="i in 5" :key="i" />
+      <div
+        v-if="loading"
+        class="space-y-4 p-4"
+      >
+        <USkeleton
+          v-for="i in 5"
+          :key="i"
+          class="h-12 w-full"
+        />
       </div>
 
-      <div v-else-if="transactions.length === 0" class="text-center py-10">
-        <UIcon name="i-lucide-file-search" class="text-4xl text-gray-400 mb-2" />
-        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">No transactions recorded</h3>
-        <p class="text-gray-500">Your ledger history is empty.</p>
+      <div
+        v-else-if="transactions.length === 0"
+        class="text-center py-10"
+      >
+        <UIcon
+          name="i-lucide-file-search"
+          class="text-4xl text-gray-400 mb-2"
+        />
+        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
+          No transactions recorded
+        </h3>
+        <p class="text-gray-500">
+          Your ledger history is empty.
+        </p>
       </div>
 
-      <div v-else class="divide-y divide-gray-200 dark:divide-gray-800">
-        <div v-for="tx in transactions" :key="tx.id" class="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+      <div
+        v-else
+        class="divide-y divide-gray-200 dark:divide-gray-800"
+      >
+        <div
+          v-for="tx in transactions"
+          :key="tx.id"
+          class="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+        >
           <div class="flex justify-between items-start mb-2">
             <div class="flex items-center gap-3">
               <span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-md text-gray-600 dark:text-gray-400">
@@ -61,7 +139,11 @@
           </div>
 
           <div class="space-y-1 mt-3 pl-2 sm:pl-10">
-            <div v-for="posting in tx.postings" :key="posting.id" class="flex justify-between text-sm">
+            <div
+              v-for="posting in tx.postings"
+              :key="posting.id"
+              class="flex justify-between text-sm"
+            >
               <span class="text-gray-600 dark:text-gray-300 font-mono">
                 {{ formatAccountType(posting.account?.type) }}:{{ posting.account?.user || '*' }}:{{ posting.account?.name || '*' }}
               </span>
@@ -77,9 +159,12 @@
           </div>
         </div>
       </div>
-      
+
       <!-- Pagination -->
-      <div class="p-4 border-t border-gray-200 dark:border-gray-800 flex justify-between items-center" v-if="totalCount > 0">
+      <div
+        v-if="totalCount > 0"
+        class="p-4 border-t border-gray-200 dark:border-gray-800 flex justify-between items-center"
+      >
         <span class="text-sm text-gray-500">
           Showing {{ (page - 1) * pageCount + 1 }} to {{ Math.min(page * pageCount, totalCount) }} of {{ totalCount }} transactions
         </span>
@@ -135,8 +220,6 @@ const clearFilters = () => {
 watch(page, () => {
   fetchData()
 })
-
-
 
 const isNegative = (units: number | string) => {
   return parseInt(String(units || 0), 10) < 0

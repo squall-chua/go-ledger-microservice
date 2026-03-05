@@ -10,7 +10,7 @@
           Paste your JWT authentication token to continue.
         </p>
       </template>
-      
+
       <form @submit.prevent="login">
         <div class="space-y-4">
           <UFormField label="JWT Token">
@@ -24,7 +24,7 @@
               required
             />
           </UFormField>
-          
+
           <UButton
             type="submit"
             color="primary"
@@ -51,10 +51,10 @@ const loading = ref(false)
 
 const login = async () => {
   loading.value = true
-  
+
   try {
     if (!jwt.value) throw new Error('Token is required')
-    
+
     // Basic structural validation of JWT (Header.Payload.Signature)
     if (jwt.value.split('.').length !== 3) {
       throw new Error('Invalid JWT format.')
@@ -65,9 +65,9 @@ const login = async () => {
     // Validate token with backend before redirecting
     try {
       const { fetchApi } = useLedgerApi()
-      await fetchApi('/accounts/balance', { 
-        method: 'POST', 
-        body: { account: {} } 
+      await fetchApi('/accounts/balance', {
+        method: 'POST',
+        body: { account: {} }
       })
     } catch (apiErr: any) {
       setToken('') // Clear invalid token
@@ -82,7 +82,7 @@ const login = async () => {
       description: 'You have logged into the Ledger Service.',
       icon: 'i-lucide-circle-check'
     })
-    
+
     return navigateTo('/')
   } catch (error: any) {
     toast.add({
