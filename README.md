@@ -279,6 +279,7 @@ request records the money exactly once.
 replayed 01a05fb9-3b05-7ce3-b0f0-ca79d8cd9ebf  2026-09-02T09:26:09+08:00  Groceries
   EXPENSES:alice:Grocery                  150.5 USD  balance 150.5 USD
   ASSETS:alice:Checking                  -150.5 USD  balance 849.5 USD
+(idempotency key "groceries-1" was already recorded, so nothing new was recorded)
 ```
 
 Note the same Transaction id and the same balances as the original record above.
@@ -328,6 +329,10 @@ curl -X POST http://localhost:8080/v1/ledger/transactions \
     ]
   }'
 ```
+
+The `date` above is the instant this example was captured. Use a current one, or
+leave `date` out and let the ledger stamp it — an old date is refused as
+backdated once the account has a later Posting.
 
 The response is the recorded Transaction, carrying the running balance on each
 Posting and the `replayed` flag (shown here pretty-printed):
