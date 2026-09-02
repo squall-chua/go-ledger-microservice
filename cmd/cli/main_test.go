@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"testing"
 	"time"
 
@@ -84,7 +85,8 @@ func TestPostReport(t *testing.T) {
 		},
 	}
 
-	fresh := postReport("key-1", response)
+	fresh, err := postReport("key-1", response)
+	require.NoError(t, err)
 	assert.Contains(t, fresh, "recorded 018f-0000")
 	assert.Contains(t, fresh, "ASSETS:alice:Checking")
 	assert.Contains(t, fresh, "balance 10 USD")
@@ -93,7 +95,8 @@ func TestPostReport(t *testing.T) {
 	// A replay prints the original Transaction, postings and running balances
 	// alike, and says it was a replay rather than a new record.
 	response.Replayed = true
-	replayed := postReport("key-1", response)
+	replayed, err := postReport("key-1", response)
+	require.NoError(t, err)
 	assert.Contains(t, replayed, "replayed 018f-0000")
 	assert.NotContains(t, replayed, "recorded 018f-0000")
 	assert.Contains(t, replayed, "ASSETS:alice:Checking")
@@ -135,5 +138,46 @@ func TestParsePostingRefusesAnAmountItCannotRecord(t *testing.T) {
 		posting, err := parsePosting(arg)
 		require.NoError(t, err, arg)
 		assert.Equal(t, nanos, posting.Amount.Nanos, arg)
+	}
+}
+
+// A balance the CLI cannot read is a failure, not a "?" in a column that leaves
+// the command exiting 0.
+func TestFormatMoneyReportsWhatItCannotRead(t *testing.T) {
+	_, err := formatMoney(&money.Money{CurrencyCode: "USD", Units: 1, Nanos: 2000000000})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nanos")
+}
+
+// stdlib flag stops at the first argument that is not a flag, so a flag written
+// after one used to be read as an argument: -user and alice fell through and
+// were counted as account types.
+func TestFlagsAreReadWhereverTheyAppear(t *testing.T) {
+	// With no token, run refuses just before it dials, so a command that gets
+	// that far parsed its arguments and reaches no server.
+	t.Setenv("LEDGER_TOKEN", "")
+
+	for _, args := range [][]string{
+		{"balance", "ASSETS", "-user", "alice"},
+		{"balance", "-user", "alice", "ASSETS"},
+		{"post", "a note", "-idempotency-key", "k", "ASSETS:alice:Checking:1+USD", "INCOMES:alice:Salary:-1+USD"},
+		{"register", "ASSETS:alice:Checking", "-reverse"},
+	} {
+		err := run(args)
+		require.Error(t, err, args)
+		assert.Contains(t, err.Error(), "no token", args)
+	}
+
+	// Two account types really are two, which is the only time it is reported.
+	err := run([]string{"balance", "ASSETS", "EQUITIES"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most one account type")
+}
+
+// Help was asked for, so it is not a failure: main prints it to stdout and
+// exits 0.
+func TestHelpIsRequestedNotFailed(t *testing.T) {
+	for _, arg := range []string{"-h", "--help", "help"} {
+		assert.ErrorIs(t, run([]string{arg}), flag.ErrHelp, arg)
 	}
 }

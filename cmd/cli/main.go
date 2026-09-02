@@ -54,6 +54,8 @@ flags on balance:
 flags on register:
   -currency   only Postings in this currency
   -reverse    newest Transaction date first
+
+A flag may appear before or after the arguments, in any order.
 `
 
 // accountTypes is the closed set an account type is matched against.
@@ -61,6 +63,12 @@ const accountTypes = "Assets, Liabilities, Equities, Incomes, Expenses"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		// Help was asked for, so it is not a failure: it goes to stdout and the
+		// command succeeds, which is what `ledger-cli --help | less` expects.
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Print(usage)
+			return
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -70,17 +78,31 @@ func run(args []string) error {
 	if len(args) == 0 {
 		return errors.New(usage)
 	}
+	switch args[0] {
+	case "-h", "--help", "help":
+		return flag.ErrHelp
+	}
 
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	addr := fs.String("addr", envOr("LEDGER_ADDR", "localhost:8080"), "address of the ledger server")
 	token := fs.String("token", os.Getenv("LEDGER_TOKEN"), "service token presented to the ledger")
-	parse := func() error {
-		err := fs.Parse(args[1:])
-		if errors.Is(err, flag.ErrHelp) {
-			return errors.New(usage)
+	// stdlib flag stops at the first argument that is not a flag, so parsing
+	// resumes after each one it stops on: a flag may then appear anywhere, and
+	// what comes back is only the arguments.
+	parse := func() ([]string, error) {
+		var arguments []string
+		for rest := args[1:]; ; {
+			if err := fs.Parse(rest); err != nil {
+				return nil, err
+			}
+			rest = fs.Args()
+			if len(rest) == 0 {
+				return arguments, nil
+			}
+			arguments = append(arguments, rest[0])
+			rest = rest[1:]
 		}
-		return err
 	}
 
 	// A dial or transport failure is not a ledger rejection, and is not worded
@@ -99,10 +121,10 @@ func run(args []string) error {
 	switch args[0] {
 	case "post":
 		key := fs.String("idempotency-key", "", "idempotency key for the Transaction, generated when omitted")
-		if err := parse(); err != nil {
+		rest, err := parse()
+		if err != nil {
 			return err
 		}
-		rest := fs.Args()
 		if len(rest) < 3 {
 			return errors.New("post takes a note and two or more postings")
 		}
@@ -126,7 +148,11 @@ func run(args []string) error {
 			if err != nil {
 				return fail(err)
 			}
-			fmt.Print(postReport(request.IdempotencyKey, response))
+			report, err := postReport(request.IdempotencyKey, response)
+			if err != nil {
+				return err
+			}
+			fmt.Print(report)
 			return nil
 		}
 
@@ -134,13 +160,14 @@ func run(args []string) error {
 		user := fs.String("user", "", "only Accounts with exactly this user")
 		name := fs.String("name", "", "only Accounts with exactly this name")
 		currency := fs.String("currency", "", "only balances in this currency")
-		if err := parse(); err != nil {
+		rest, err := parse()
+		if err != nil {
 			return err
 		}
 		// The argument is an account type, not a prefix: names are flat, so
 		// there is nothing to roll up. See docs/adr/0002-flat-account-names.md.
 		filter := &pb.AccountFilter{}
-		switch rest := fs.Args(); len(rest) {
+		switch len(rest) {
 		case 0:
 		case 1:
 			filter.Type = accountfmt.StringToAccountType(rest[0])
@@ -170,7 +197,11 @@ func run(args []string) error {
 				return fail(err)
 			}
 			for _, balance := range response.Balances {
-				fmt.Printf("%-32s %16s\n", formatAccount(balance.Account), formatMoney(balance.Balance))
+				amount, err := formatMoney(balance.Balance)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("%-32s %16s\n", formatAccount(balance.Account), amount)
 			}
 			return nil
 		}
@@ -178,10 +209,10 @@ func run(args []string) error {
 	case "register":
 		currency := fs.String("currency", "", "only Postings in this currency")
 		reverse := fs.Bool("reverse", false, "newest Transaction date first")
-		if err := parse(); err != nil {
+		rest, err := parse()
+		if err != nil {
 			return err
 		}
-		rest := fs.Args()
 		if len(rest) != 1 {
 			return errors.New("register takes exactly one account, as TYPE:USER:NAME")
 		}
@@ -205,8 +236,16 @@ func run(args []string) error {
 				return fail(err)
 			}
 			for _, posting := range response.Postings {
+				amount, err := formatMoney(posting.Amount)
+				if err != nil {
+					return err
+				}
+				balance, err := formatMoney(posting.Balance)
+				if err != nil {
+					return err
+				}
 				fmt.Printf("%-25s %16s  balance %16s  %s\n",
-					formatDate(posting.Date), formatMoney(posting.Amount), formatMoney(posting.Balance), posting.TransactionId)
+					formatDate(posting.Date), amount, balance, posting.TransactionId)
 			}
 			if int64(len(response.Postings)) < response.TotalCount {
 				fmt.Printf("(showing %d of %d postings)\n", len(response.Postings), response.TotalCount)
@@ -240,7 +279,7 @@ func run(args []string) error {
 // money exactly once, which is what the caller wanted, so the original
 // Transaction is printed exactly as a fresh record is and only the wording
 // tells the two apart.
-func postReport(key string, response *pb.RecordTransactionResponse) string {
+func postReport(key string, response *pb.RecordTransactionResponse) (string, error) {
 	transaction := response.Transaction
 	verb := "recorded"
 	if response.Replayed {
@@ -250,13 +289,20 @@ func postReport(key string, response *pb.RecordTransactionResponse) string {
 	var report strings.Builder
 	fmt.Fprintf(&report, "%s %s  %s  %s\n", verb, transaction.Id, formatDate(transaction.Date), transaction.Note)
 	for _, posting := range transaction.Postings {
-		fmt.Fprintf(&report, "  %-32s %16s  balance %s\n",
-			formatAccount(posting.Account), formatMoney(posting.Amount), formatMoney(posting.Balance))
+		amount, err := formatMoney(posting.Amount)
+		if err != nil {
+			return "", err
+		}
+		balance, err := formatMoney(posting.Balance)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&report, "  %-32s %16s  balance %s\n", formatAccount(posting.Account), amount, balance)
 	}
 	if response.Replayed {
 		fmt.Fprintf(&report, "(idempotency key %q was already recorded, so nothing new was recorded)\n", key)
 	}
-	return report.String()
+	return report.String(), nil
 }
 
 // parsePosting parses one posting argument, TYPE:USER:NAME:AMOUNT+CURRENCY.
@@ -321,12 +367,16 @@ func formatAccount(account *pb.Account) string {
 	return fmt.Sprintf("%s:%s:%s", accountfmt.AccountTypeToString(account.Type), account.User, account.Name)
 }
 
-func formatMoney(amount *money.Money) string {
+// formatMoney renders one amount. An amount it cannot read is a failure worth
+// reporting rather than a placeholder in a column: an operator reading a report
+// cannot tell a broken amount from a real one, and a script sees only the exit
+// code.
+func formatMoney(amount *money.Money) (string, error) {
 	value, err := moneyfmt.ToDecimal(amount)
 	if err != nil {
-		return "?"
+		return "", fmt.Errorf("the ledger returned an amount that cannot be read: %w", err)
 	}
-	return value.String() + " " + amount.CurrencyCode
+	return value.String() + " " + amount.CurrencyCode, nil
 }
 
 func formatDate(date *timestamppb.Timestamp) string {
