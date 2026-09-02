@@ -36,7 +36,7 @@
         "parameters": [
           {
             "name": "body",
-            "description": "Every filter is optional; supplying none returns the Trial balance.\nAn unspecified account type, an empty user and an empty name each mean\n\"not filtered\" here — they are never a wildcard in the data.",
+            "description": "Every filter is optional; supplying none returns the Trial balance.",
             "in": "body",
             "required": true,
             "schema": {
@@ -255,6 +255,22 @@
         }
       }
     },
+    "v1AccountFilter": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/v1AccountType",
+          "description": "Unspecified means \"not filtered\": no Account carries it."
+        },
+        "user": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "description": "An AccountFilter narrows a read to the Accounts whose fields match it\nexactly. A field it leaves unset is not filtered on at all; a field it sets\nto the empty string matches only the empty string, so an Account with no\nuser can be asked for on its own. Nothing here is ever a wildcard."
+    },
     "v1AccountType": {
       "type": "string",
       "enum": [
@@ -271,13 +287,13 @@
       "type": "object",
       "properties": {
         "account": {
-          "$ref": "#/definitions/v1Account"
+          "$ref": "#/definitions/v1AccountFilter"
         },
         "currencyCode": {
           "type": "string"
         }
       },
-      "description": "Every filter is optional; supplying none returns the Trial balance.\nAn unspecified account type, an empty user and an empty name each mean\n\"not filtered\" here — they are never a wildcard in the data."
+      "description": "Every filter is optional; supplying none returns the Trial balance."
     },
     "v1ListAccountBalancesResponse": {
       "type": "object",
@@ -299,15 +315,17 @@
         },
         "pageSize": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "Defaults to 10, clamped to at most 100."
         },
         "pageNumber": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "One-based; below one is the first page."
         },
-        "orderByDesc": {
+        "orderByAscending": {
           "type": "boolean",
-          "description": "If true, sort descending (newest first). If false, sort ascending."
+          "description": "Oldest Transaction date first. Default is newest first."
         }
       }
     },
@@ -335,15 +353,17 @@
         },
         "pageSize": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "Defaults to 10, clamped to at most 100."
         },
         "pageNumber": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "One-based; below one is the first page."
         },
-        "orderByDesc": {
+        "orderByAscending": {
           "type": "boolean",
-          "description": "If true, sort descending (newest first). If false, sort ascending."
+          "description": "Oldest Transaction date first. Default is newest first."
         }
       }
     },
@@ -407,26 +427,24 @@
     "v1PostingFilter": {
       "type": "object",
       "properties": {
-        "transactionFilter": {
-          "$ref": "#/definitions/v1TransactionFilter",
-          "description": "Carry over all transaction-level filters to filter the postings."
-        },
-        "id": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "transactionId": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "account": {
-          "$ref": "#/definitions/v1Account"
+          "$ref": "#/definitions/v1AccountFilter"
+        },
+        "currencyCode": {
+          "type": "string"
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Transaction date, inclusive."
+        },
+        "endDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Transaction date, exclusive."
         }
-      }
+      },
+      "description": "A Register read: one Account's Postings over time. Every filter is optional\nand the date range is half-open, as on the Transaction listing."
     },
     "v1RecordTransactionRequest": {
       "type": "object",
@@ -509,40 +527,30 @@
     "v1TransactionFilter": {
       "type": "object",
       "properties": {
-        "id": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "idempotencyKey": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "type": "string",
+          "description": "Exact; matches at most one Transaction."
         },
         "startDate": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "Transaction date, inclusive."
         },
         "endDate": {
           "type": "string",
-          "format": "date-time"
-        },
-        "note": {
-          "type": "string"
+          "format": "date-time",
+          "description": "Transaction date, exclusive."
         },
         "metadataFilters": {
           "type": "array",
           "items": {
             "type": "object",
             "$ref": "#/definitions/v1MetadataFilter"
-          }
-        },
-        "currency": {
-          "type": "string"
+          },
+          "description": "Reserved for the metadata rework; not applied yet."
         }
-      }
+      },
+      "description": "Every filter is optional. The date range is half-open: start_date is\nincluded and end_date is excluded, so adjacent periods never double-count."
     }
   }
 }

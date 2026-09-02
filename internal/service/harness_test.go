@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/squall-chua/go-ledger-microservice/api/v1"
 	"github.com/squall-chua/go-ledger-microservice/internal/middleware"
@@ -206,6 +207,21 @@ func (h *harness) balances(request *pb.ListAccountBalancesRequest) []*pb.Account
 	return response.Balances
 }
 
+func (h *harness) transactions(request *pb.ListTransactionsRequest) *pb.ListTransactionsResponse {
+	h.t.Helper()
+	response, err := h.client.ListTransactions(h.ctx, request)
+	require.NoError(h.t, err)
+	return response
+}
+
+// register reads one account's postings back through ListPostings.
+func (h *harness) register(request *pb.ListPostingsRequest) *pb.ListPostingsResponse {
+	h.t.Helper()
+	response, err := h.client.ListPostings(h.ctx, request)
+	require.NoError(h.t, err)
+	return response
+}
+
 // transfer is the ordinary two-legged transaction the tests lean on: `amount`
 // out of `from` and into `to`, in USD.
 func transfer(key, note string, from, to *pb.Account, amount *money.Money) *pb.RecordTransactionRequest {
@@ -225,6 +241,12 @@ func posting(account *pb.Account, amount *money.Money) *pb.RecordTransactionRequ
 
 func account(accountType pb.AccountType, user, name string) *pb.Account {
 	return &pb.Account{Type: accountType, User: user, Name: name}
+}
+
+// exactly asks for one account and nothing else: every field is set, so an
+// empty user or name is filtered for rather than ignored.
+func exactly(a *pb.Account) *pb.AccountFilter {
+	return &pb.AccountFilter{Type: a.Type, User: proto.String(a.User), Name: proto.String(a.Name)}
 }
 
 func amount(currencyCode string, units int64, nanos int32) *money.Money {

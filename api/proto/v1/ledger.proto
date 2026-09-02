@@ -65,11 +65,19 @@ message RecordTransactionResponse {
   Transaction transaction = 1;
 }
 
+// An AccountFilter narrows a read to the Accounts whose fields match it
+// exactly. A field it leaves unset is not filtered on at all; a field it sets
+// to the empty string matches only the empty string, so an Account with no
+// user can be asked for on its own. Nothing here is ever a wildcard.
+message AccountFilter {
+  AccountType type = 1; // Unspecified means "not filtered": no Account carries it.
+  optional string user = 2;
+  optional string name = 3;
+}
+
 // Every filter is optional; supplying none returns the Trial balance.
-// An unspecified account type, an empty user and an empty name each mean
-// "not filtered" here — they are never a wildcard in the data.
 message ListAccountBalancesRequest {
-  Account account = 1;
+  AccountFilter account = 1;
   string currency_code = 2;
 }
 
@@ -100,21 +108,20 @@ message MetadataFilter {
   google.protobuf.Any value = 3; // The value to compare against
 }
 
+// Every filter is optional. The date range is half-open: start_date is
+// included and end_date is excluded, so adjacent periods never double-count.
 message TransactionFilter {
-  repeated string id = 1;
-  repeated string idempotency_key = 2;
-  google.protobuf.Timestamp start_date = 3;
-  google.protobuf.Timestamp end_date = 4;
-  string note = 5;
-  repeated MetadataFilter metadata_filters = 6;
-  string currency = 7;
+  string idempotency_key = 1; // Exact; matches at most one Transaction.
+  google.protobuf.Timestamp start_date = 2; // Transaction date, inclusive.
+  google.protobuf.Timestamp end_date = 3; // Transaction date, exclusive.
+  repeated MetadataFilter metadata_filters = 4; // Reserved for the metadata rework; not applied yet.
 }
 
 message ListTransactionsRequest {
   TransactionFilter filter = 1;
-  int32 page_size = 2;
-  int32 page_number = 3;
-  bool order_by_desc = 4; // If true, sort descending (newest first). If false, sort ascending.
+  int32 page_size = 2; // Defaults to 10, clamped to at most 100.
+  int32 page_number = 3; // One-based; below one is the first page.
+  bool order_by_ascending = 4; // Oldest Transaction date first. Default is newest first.
 }
 
 message ListTransactionsResponse {
@@ -122,18 +129,20 @@ message ListTransactionsResponse {
   int64 total_count = 2;
 }
 
+// A Register read: one Account's Postings over time. Every filter is optional
+// and the date range is half-open, as on the Transaction listing.
 message PostingFilter {
-  TransactionFilter transaction_filter = 1; // Carry over all transaction-level filters to filter the postings.
-  repeated string id = 2;
-  repeated string transaction_id = 3;
-  Account account = 4;
+  AccountFilter account = 1;
+  string currency_code = 2;
+  google.protobuf.Timestamp start_date = 3; // Transaction date, inclusive.
+  google.protobuf.Timestamp end_date = 4; // Transaction date, exclusive.
 }
 
 message ListPostingsRequest {
   PostingFilter filter = 1;
-  int32 page_size = 2;
-  int32 page_number = 3;
-  bool order_by_desc = 4; // If true, sort descending (newest first). If false, sort ascending.
+  int32 page_size = 2; // Defaults to 10, clamped to at most 100.
+  int32 page_number = 3; // One-based; below one is the first page.
+  bool order_by_ascending = 4; // Oldest Transaction date first. Default is newest first.
 }
 
 message ListPostingsResponse {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/type/money"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/squall-chua/go-ledger-microservice/api/v1"
@@ -48,20 +49,20 @@ func TestListAccountBalancesWithAnExactAccountReturnsOneBalancePerCurrency(t *te
 	h.mustRecord(transfer("key-eur", "eur deposit", opening, cash, amount("EUR", 20, 0)))
 	h.mustRecord(transfer("key-other", "someone else", opening, savings, usd(7, 0)))
 
-	balances := h.balances(&pb.ListAccountBalancesRequest{Account: cash})
+	balances := h.balances(&pb.ListAccountBalancesRequest{Account: exactly(cash)})
 	require.Len(t, balances, 2)
 	assert.Equal(t, cash.Name, balances[0].Account.Name)
 	assertMoney(t, amount("EUR", 20, 0), balances[0].Balance)
 	assertMoney(t, usd(100, 0), balances[1].Balance)
 
 	// Narrowing by currency leaves one.
-	balances = h.balances(&pb.ListAccountBalancesRequest{Account: cash, CurrencyCode: "USD"})
+	balances = h.balances(&pb.ListAccountBalancesRequest{Account: exactly(cash), CurrencyCode: "USD"})
 	require.Len(t, balances, 1)
 	assertMoney(t, usd(100, 0), balances[0].Balance)
 
 	// The account is matched exactly: nothing rolls up and nothing is a pattern.
 	balances = h.balances(&pb.ListAccountBalancesRequest{
-		Account: account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check"),
+		Account: exactly(account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check")),
 	})
 	assert.Empty(t, balances)
 }
@@ -203,7 +204,7 @@ func TestMoneyRoundTripsExactlyAtNineDigits(t *testing.T) {
 	assertMoney(t, usd(1, 123456789), transaction.Postings[0].Amount)
 	assertMoney(t, usd(1, 123456789), transaction.Postings[0].Balance)
 
-	balances := h.balances(&pb.ListAccountBalancesRequest{Account: cash})
+	balances := h.balances(&pb.ListAccountBalancesRequest{Account: exactly(cash)})
 	require.Len(t, balances, 1)
 	assertMoney(t, usd(1, 123456789), balances[0].Balance)
 }
@@ -240,14 +241,152 @@ func TestMetadataAndSuppliedDateRoundTrip(t *testing.T) {
 	assert.Empty(t, plain.Metadata)
 }
 
-func TestTheListingRPCsAreNotImplementedYet(t *testing.T) {
+func TestListTransactionsPagesNewestFirstWithATotalCount(t *testing.T) {
 	h := newHarness(t)
+	h.recordDays(3, opening, cash)
 
-	_, err := h.client.ListTransactions(h.ctx, &pb.ListTransactionsRequest{})
-	requireCode(t, err, codes.Unimplemented)
+	page := h.transactions(&pb.ListTransactionsRequest{PageSize: 2})
+	assert.EqualValues(t, 3, page.TotalCount, "the total counts every match, not only the page")
+	assert.Equal(t, []string{"note 3", "note 2"}, notesOf(page.Transactions), "newest first by default")
 
-	_, err = h.client.ListPostings(h.ctx, &pb.ListPostingsRequest{})
-	requireCode(t, err, codes.Unimplemented)
+	// Every transaction comes back with its own postings.
+	require.Len(t, page.Transactions[0].Postings, 2)
+	assertMoney(t, usd(3, 0), page.Transactions[0].Postings[0].Amount)
+	assertMoney(t, usd(6, 0), page.Transactions[0].Postings[0].Balance, "1 + 2 + 3 landed in cash")
+	assert.Equal(t, page.Transactions[0].Id, page.Transactions[0].Postings[0].TransactionId)
+
+	// The page is taken over transactions, so the second page holds the rest.
+	next := h.transactions(&pb.ListTransactionsRequest{PageSize: 2, PageNumber: 2})
+	assert.EqualValues(t, 3, next.TotalCount)
+	assert.Equal(t, []string{"note 1"}, notesOf(next.Transactions))
+
+	ascending := h.transactions(&pb.ListTransactionsRequest{OrderByAscending: true})
+	assert.Equal(t, []string{"note 1", "note 2", "note 3"}, notesOf(ascending.Transactions))
+}
+
+func TestListTransactionsUsesAHalfOpenDateRange(t *testing.T) {
+	h := newHarness(t)
+	h.recordDays(3, opening, cash)
+
+	page := h.transactions(&pb.ListTransactionsRequest{Filter: &pb.TransactionFilter{
+		StartDate: timestamppb.New(day(1)),
+		EndDate:   timestamppb.New(day(3)),
+	}})
+
+	assert.EqualValues(t, 2, page.TotalCount)
+	assert.Equal(t, []string{"note 2", "note 1"}, notesOf(page.Transactions),
+		"the start of the range is included and the end excluded")
+}
+
+func TestListTransactionsFindsOneTransactionByItsIdempotencyKey(t *testing.T) {
+	h := newHarness(t)
+	h.recordDays(3, opening, cash)
+
+	page := h.transactions(&pb.ListTransactionsRequest{
+		Filter: &pb.TransactionFilter{IdempotencyKey: "key-2"},
+	})
+	assert.EqualValues(t, 1, page.TotalCount)
+	assert.Equal(t, []string{"note 2"}, notesOf(page.Transactions))
+
+	unknown := h.transactions(&pb.ListTransactionsRequest{
+		Filter: &pb.TransactionFilter{IdempotencyKey: "never-recorded"},
+	})
+	assert.Zero(t, unknown.TotalCount)
+	assert.Empty(t, unknown.Transactions)
+}
+
+func TestListTransactionsPageSizeDefaultsToTen(t *testing.T) {
+	h := newHarness(t)
+	h.recordDays(11, opening, cash)
+
+	page := h.transactions(&pb.ListTransactionsRequest{})
+	assert.Len(t, page.Transactions, 10, "a caller that asks for no page size gets ten")
+	assert.EqualValues(t, 11, page.TotalCount)
+
+	// A caller asking for more than the maximum is clamped rather than refused;
+	// the clamp itself is pinned in the repository's page bounds.
+	assert.Len(t, h.transactions(&pb.ListTransactionsRequest{PageSize: 1000}).Transactions, 11)
+}
+
+func TestListPostingsReturnsOneAccountsRegisterWithRunningBalances(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(onDay(1, "key-1", "opening deposit", opening, cash, usd(100, 0)))
+	h.mustRecord(onDay(2, "key-2", "rent", cash, rent, usd(30, 0)))
+	h.mustRecord(onDay(3, "key-3", "to savings", cash, savings, usd(20, 0)))
+
+	register := h.register(&pb.ListPostingsRequest{
+		Filter:           &pb.PostingFilter{Account: exactly(cash)},
+		OrderByAscending: true,
+	})
+
+	assert.EqualValues(t, 3, register.TotalCount)
+	require.Len(t, register.Postings, 3)
+	for _, posting := range register.Postings {
+		assert.Equal(t, cash.Name, posting.Account.Name, "the register holds one account only")
+		assert.Equal(t, cash.User, posting.Account.User)
+	}
+
+	// Each entry carries its own amount and the balance left after it.
+	assertMoney(t, usd(100, 0), register.Postings[0].Amount)
+	assertMoney(t, usd(100, 0), register.Postings[0].Balance)
+	assertMoney(t, usd(-30, 0), register.Postings[1].Amount)
+	assertMoney(t, usd(70, 0), register.Postings[1].Balance)
+	assertMoney(t, usd(-20, 0), register.Postings[2].Amount)
+	assertMoney(t, usd(50, 0), register.Postings[2].Balance)
+
+	newestFirst := h.register(&pb.ListPostingsRequest{Filter: &pb.PostingFilter{Account: exactly(cash)}})
+	assertMoney(t, usd(50, 0), newestFirst.Postings[0].Balance, "newest first by default")
+}
+
+func TestListPostingsFiltersTheRegisterExactly(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(onDay(1, "key-usd", "usd deposit", opening, cash, usd(100, 0)))
+	h.mustRecord(onDay(2, "key-eur", "eur deposit", opening, cash, amount("EUR", 20, 0)))
+	h.mustRecord(onDay(3, "key-savings", "savings deposit", opening, savings, usd(7, 0)))
+
+	total := func(filter *pb.PostingFilter) int64 {
+		return h.register(&pb.ListPostingsRequest{Filter: filter}).TotalCount
+	}
+
+	assert.EqualValues(t, 2, total(&pb.PostingFilter{Account: exactly(cash)}), "both currencies of one account")
+	assert.EqualValues(t, 1, total(&pb.PostingFilter{Account: exactly(cash), CurrencyCode: "USD"}))
+	assert.EqualValues(t, 3, total(&pb.PostingFilter{
+		Account: &pb.AccountFilter{Type: pb.AccountType_ACCOUNT_TYPE_ASSETS}}), "by type alone")
+	assert.EqualValues(t, 3, total(&pb.PostingFilter{
+		Account: &pb.AccountFilter{User: proto.String("alice")}}), "by user alone")
+	assert.EqualValues(t, 1, total(&pb.PostingFilter{
+		Account: &pb.AccountFilter{Name: proto.String("Savings")}}), "by name alone")
+	assert.EqualValues(t, 0, total(&pb.PostingFilter{
+		Account: &pb.AccountFilter{Name: proto.String("Check")}}), "a name is never a prefix")
+
+	// The register takes the same half-open date range as the listing.
+	assert.EqualValues(t, 4, total(&pb.PostingFilter{
+		StartDate: timestamppb.New(day(1)),
+		EndDate:   timestamppb.New(day(3)),
+	}), "two transactions of two postings each")
+}
+
+func TestAnEmptyUserIsFilteredForExactly(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(onDay(1, "key-1", "opening deposit", opening, cash, usd(100, 0)))
+
+	// `opening` has no user at all. Asking for that user must not also return
+	// the accounts that have one.
+	balances := h.balances(&pb.ListAccountBalancesRequest{
+		Account: &pb.AccountFilter{User: proto.String("")},
+	})
+	require.Len(t, balances, 1)
+	assert.Equal(t, opening.Name, balances[0].Account.Name)
+
+	register := h.register(&pb.ListPostingsRequest{
+		Filter: &pb.PostingFilter{Account: &pb.AccountFilter{User: proto.String("")}},
+	})
+	require.Len(t, register.Postings, 1)
+	assert.Equal(t, opening.Name, register.Postings[0].Account.Name)
+
+	// Leaving the user out entirely still means every user.
+	assert.Len(t, h.balances(&pb.ListAccountBalancesRequest{Account: &pb.AccountFilter{}}), 2)
+	assert.EqualValues(t, 2, h.register(&pb.ListPostingsRequest{Filter: &pb.PostingFilter{}}).TotalCount)
 }
 
 func TestACallerWithoutATokenIsRefused(t *testing.T) {
@@ -257,12 +396,43 @@ func TestACallerWithoutATokenIsRefused(t *testing.T) {
 	requireCode(t, err, codes.Unauthenticated)
 }
 
-func assertMoney(t *testing.T, want, got *money.Money) {
+// day fixes a transaction date, so what the listings order by is the supplied
+// date and never the clock.
+func day(number int) time.Time {
+	return time.Date(2026, time.March, number, 12, 0, 0, 0, time.UTC)
+}
+
+func onDay(number int, key, note string, from, to *pb.Account, amount *money.Money) *pb.RecordTransactionRequest {
+	request := transfer(key, note, from, to, amount)
+	request.Date = timestamppb.New(day(number))
+	return request
+}
+
+// recordDays records one transaction per day, "note 1" on day 1 and so on,
+// moving that many units into `to`.
+func (h *harness) recordDays(days int, from, to *pb.Account) {
+	h.t.Helper()
+	for number := 1; number <= days; number++ {
+		h.mustRecord(onDay(number,
+			fmt.Sprintf("key-%d", number), fmt.Sprintf("note %d", number),
+			from, to, usd(int64(number), 0)))
+	}
+}
+
+func notesOf(transactions []*pb.Transaction) []string {
+	notes := make([]string, len(transactions))
+	for i, transaction := range transactions {
+		notes[i] = transaction.Note
+	}
+	return notes
+}
+
+func assertMoney(t *testing.T, want, got *money.Money, msgAndArgs ...any) {
 	t.Helper()
 	require.NotNil(t, got)
-	assert.Equal(t, want.CurrencyCode, got.CurrencyCode)
-	assert.Equal(t, want.Units, got.Units)
-	assert.Equal(t, want.Nanos, got.Nanos)
+	assert.Equal(t, want.CurrencyCode, got.CurrencyCode, msgAndArgs...)
+	assert.Equal(t, want.Units, got.Units, msgAndArgs...)
+	assert.Equal(t, want.Nanos, got.Nanos, msgAndArgs...)
 }
 
 func balanceOf(t *testing.T, balances []*pb.AccountBalance, want *pb.Account) *money.Money {
@@ -306,7 +476,7 @@ func TestConcurrentOppositeTransfersDoNotDeadlock(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err, "concurrent opposite transfers must all succeed")
 	}
-	assertMoney(t, usd(1000, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{Account: cash}), cash))
+	assertMoney(t, usd(1000, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{Account: exactly(cash)}), cash))
 }
 
 func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {
@@ -319,7 +489,7 @@ func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {
 	// same bucket, stored under the upper case code.
 	assertMoney(t, usd(150, 0), transaction.Postings[0].Balance)
 
-	balances := h.balances(&pb.ListAccountBalancesRequest{Account: cash})
+	balances := h.balances(&pb.ListAccountBalancesRequest{Account: exactly(cash)})
 	require.Len(t, balances, 1, "usd and USD are one balance, not two")
 	assertMoney(t, usd(150, 0), balances[0].Balance)
 }

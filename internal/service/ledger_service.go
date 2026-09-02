@@ -9,6 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/squall-chua/go-ledger-microservice/api/v1"
 	"github.com/squall-chua/go-ledger-microservice/internal/accountfmt"
@@ -140,14 +141,13 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 }
 
 func (s *ledgerService) ListAccountBalances(ctx context.Context, req *pb.ListAccountBalancesRequest) (*pb.ListAccountBalancesResponse, error) {
-	filter := repository.BalanceFilter{CurrencyCode: req.CurrencyCode}
-	if req.Account != nil {
-		filter.Type = accountfmt.AccountTypeToString(req.Account.Type)
-		filter.User = req.Account.User
-		filter.Name = req.Account.Name
-	}
-
-	balances, err := s.repo.ListAccountBalances(ctx, filter)
+	accountType, user, name := accountFilter(req.Account)
+	balances, err := s.repo.ListAccountBalances(ctx, repository.BalanceFilter{
+		Type:         accountType,
+		User:         user,
+		Name:         name,
+		CurrencyCode: strings.ToUpper(req.CurrencyCode),
+	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to read account balances: %v", err)
 	}
@@ -155,10 +155,57 @@ func (s *ledgerService) ListAccountBalances(ctx context.Context, req *pb.ListAcc
 	return &pb.ListAccountBalancesResponse{Balances: balances}, nil
 }
 
-func (s *ledgerService) ListTransactions(context.Context, *pb.ListTransactionsRequest) (*pb.ListTransactionsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "ListTransactions is not implemented on the new schema yet")
+func (s *ledgerService) ListTransactions(ctx context.Context, req *pb.ListTransactionsRequest) (*pb.ListTransactionsResponse, error) {
+	filter := repository.TransactionFilter{
+		IdempotencyKey: req.Filter.GetIdempotencyKey(),
+		StartDate:      dateOrNil(req.Filter.GetStartDate()),
+		EndDate:        dateOrNil(req.Filter.GetEndDate()),
+	}
+
+	transactions, total, err := s.repo.ListTransactions(ctx, filter, pageOf(req.PageSize, req.PageNumber, req.OrderByAscending))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list transactions: %v", err)
+	}
+
+	return &pb.ListTransactionsResponse{Transactions: transactions, TotalCount: total}, nil
 }
 
-func (s *ledgerService) ListPostings(context.Context, *pb.ListPostingsRequest) (*pb.ListPostingsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "ListPostings is not implemented on the new schema yet")
+func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRequest) (*pb.ListPostingsResponse, error) {
+	accountType, user, name := accountFilter(req.Filter.GetAccount())
+	filter := repository.RegisterFilter{
+		Type:         accountType,
+		User:         user,
+		Name:         name,
+		CurrencyCode: strings.ToUpper(req.Filter.GetCurrencyCode()),
+		StartDate:    dateOrNil(req.Filter.GetStartDate()),
+		EndDate:      dateOrNil(req.Filter.GetEndDate()),
+	}
+
+	postings, total, err := s.repo.ListRegister(ctx, filter, pageOf(req.PageSize, req.PageNumber, req.OrderByAscending))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read the register: %v", err)
+	}
+
+	return &pb.ListPostingsResponse{Postings: postings, TotalCount: total}, nil
+}
+
+// accountFilter unpacks an account filter. The user and the name keep their
+// presence: unset is "not filtered", while empty matches only the empty string.
+func accountFilter(filter *pb.AccountFilter) (accountType string, user, name *string) {
+	if filter == nil {
+		return "", nil, nil
+	}
+	return accountfmt.AccountTypeToString(filter.Type), filter.User, filter.Name
+}
+
+func pageOf(size, number int32, ascending bool) repository.Page {
+	return repository.Page{Size: size, Number: number, Ascending: ascending}
+}
+
+func dateOrNil(date *timestamppb.Timestamp) *time.Time {
+	if date == nil {
+		return nil
+	}
+	moment := date.AsTime()
+	return &moment
 }
