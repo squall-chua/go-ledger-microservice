@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_TRANSACTION_PAGE_SIZE, toListTransactionsRequest } from './transactionFilters'
+import { toListTransactionsRequest } from './transactionFilters'
+import { MAX_PAGE_SIZE } from './constants'
 
 describe('toListTransactionsRequest', () => {
   it('sends no filter at all when nothing is filled in', () => {
@@ -36,8 +37,8 @@ describe('toListTransactionsRequest', () => {
   })
 
   it('never asks for a page larger than the server allows', () => {
-    expect(toListTransactionsRequest({ pageSize: 500 }).pageSize).toBe(MAX_TRANSACTION_PAGE_SIZE)
-    expect(toListTransactionsRequest({ pageSize: MAX_TRANSACTION_PAGE_SIZE }).pageSize).toBe(100)
+    expect(toListTransactionsRequest({ pageSize: 500 }).pageSize).toBe(MAX_PAGE_SIZE)
+    expect(toListTransactionsRequest({ pageSize: MAX_PAGE_SIZE }).pageSize).toBe(100)
     expect(toListTransactionsRequest({ pageSize: 50 }).pageSize).toBe(50)
   })
 

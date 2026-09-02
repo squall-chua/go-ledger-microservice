@@ -14,7 +14,7 @@
         variant="soft"
         icon="i-lucide-refresh-cw"
         :loading="loading"
-        @click="fetchData"
+        @click="refresh"
       >
         Refresh
       </UButton>
@@ -28,7 +28,7 @@
             v-model="filters.type"
             :items="accountTypeOptions"
             class="w-full"
-            @update:model-value="fetchData"
+            @update:model-value="refresh"
           />
         </UFormField>
         <UFormField label="Currency">
@@ -36,7 +36,7 @@
             v-model="filters.currency"
             :items="CURRENCY_OPTIONS"
             class="w-full"
-            @update:model-value="fetchData"
+            @update:model-value="refresh"
           />
         </UFormField>
         <UFormField label="User">
@@ -44,7 +44,7 @@
             v-model="filters.user"
             placeholder="Exact user"
             class="w-full"
-            @change="fetchData"
+            @change="refresh"
           />
         </UFormField>
         <UFormField label="Name">
@@ -52,14 +52,21 @@
             v-model="filters.name"
             placeholder="Exact name"
             class="w-full"
-            @change="fetchData"
+            @change="refresh"
           />
         </UFormField>
       </div>
     </UCard>
 
     <!-- Data Table -->
+    <LedgerError
+      v-if="error"
+      :error="error"
+      title="Failed to load the trial balance"
+      @retry="refresh"
+    />
     <UCard
+      v-else
       class="shadow-sm border-gray-200 dark:border-gray-800"
       :ui="{ body: 'p-0 sm:p-0' }"
     >
@@ -138,13 +145,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import type { AccountBalance, ListAccountBalancesResponse } from '~/types/ledger'
 import type { BalanceFilterControls } from '~/utils/balanceFilters'
-
-const { fetchApi } = useLedgerApi()
-const loading = ref(true)
-const balances = ref<AccountBalance[]>([])
 
 const filters = ref<BalanceFilterControls>({
   type: 'ALL',
@@ -158,34 +161,10 @@ const accountTypeOptions = [
   ...ACCOUNT_TYPES
 ]
 
-// Every control fetches on its own, so two quick changes leave two requests in
-// flight. Only the newest one may touch the table: a trial balance showing rows
-// from a filter the operator has already moved off is silently wrong numbers.
-let latestRequest = 0
-
-const fetchData = async () => {
-  const request = ++latestRequest
-  loading.value = true
-  try {
-    const data = await fetchApi<ListAccountBalancesResponse>('/accounts/balance', {
-      method: 'POST',
-      body: toListAccountBalancesRequest(filters.value)
-    })
-    if (request !== latestRequest) {
-      return
-    }
-    balances.value = data.balances || []
-  } catch (err: any) {
-    if (request !== latestRequest) {
-      return
-    }
-    useToast().add({ title: 'Error', description: err.message, color: 'error' })
-  } finally {
-    if (request === latestRequest) {
-      loading.value = false
-    }
-  }
-}
-
-onMounted(() => fetchData())
+const { rows: balances, loading, error, refresh } = useLedgerQuery<ListAccountBalancesResponse, AccountBalance>({
+  key: 'trial-balance',
+  path: '/accounts/balance',
+  body: () => toListAccountBalancesRequest(filters.value),
+  rows: response => response.balances
+})
 </script>

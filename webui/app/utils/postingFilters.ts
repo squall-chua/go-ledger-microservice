@@ -1,4 +1,5 @@
 import type { AccountFilter, AccountType, ListPostingsRequest, PostingFilter } from '../types/ledger'
+import { MAX_PAGE_SIZE } from './constants'
 
 /** The register's filter controls, exactly as the page holds them. */
 export interface RegisterFilters {
@@ -17,9 +18,6 @@ export interface RegisterFilters {
   /** Oldest transaction date first. */
   ascending: boolean
 }
-
-/** The server clamps a page size here, so never ask for more. */
-export const MAX_PAGE_SIZE = 100
 
 /**
  * Maps the filter controls onto a ListPostingsRequest.

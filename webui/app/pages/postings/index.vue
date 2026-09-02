@@ -23,7 +23,7 @@
           variant="soft"
           icon="i-lucide-refresh-cw"
           :loading="loading"
-          @click="fetchData"
+          @click="refresh"
         >
           Refresh
         </UButton>
@@ -124,7 +124,7 @@
         <UButton
           color="neutral"
           variant="soft"
-          @click="applyFilters"
+          @click="apply"
         >
           Apply Filters
         </UButton>
@@ -132,7 +132,16 @@
     </UCard>
 
     <!-- Data Table -->
-    <UCard class="shadow-sm border-gray-200 dark:border-gray-800">
+    <LedgerError
+      v-if="error"
+      :error="error"
+      title="Failed to load the register"
+      @retry="refresh"
+    />
+    <UCard
+      v-else
+      class="shadow-sm border-gray-200 dark:border-gray-800"
+    >
       <div
         v-if="loading"
         class="space-y-4 p-4"
@@ -153,10 +162,10 @@
           class="text-4xl text-gray-400 mb-2"
         />
         <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-          No postings in this register
+          {{ filtered ? 'No postings match these filters' : 'No postings in this register' }}
         </h3>
         <p class="text-gray-500">
-          No posting matches these filters.
+          {{ filtered ? 'Nothing on the ledger matches.' : 'No posting has been recorded yet.' }}
         </p>
       </div>
 
@@ -202,7 +211,7 @@
         class="p-4 border-t border-gray-200 dark:border-gray-800 flex justify-between items-center"
       >
         <span class="text-sm text-gray-500">
-          Showing {{ (page - 1) * PAGE_SIZE + 1 }} to {{ Math.min(page * PAGE_SIZE, totalCount) }} of {{ totalCount }} postings
+          Showing {{ range.from }} to {{ range.to }} of {{ range.total }} postings
         </span>
         <UPagination
           v-model:page="page"
@@ -215,16 +224,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { computed, ref } from 'vue'
 import type { ListPostingsResponse, Posting } from '~/types/ledger'
 import type { RegisterFilters } from '~/utils/postingFilters'
 
-const { fetchApi } = useLedgerApi()
-const loading = ref(true)
-const postings = ref<Posting[]>([])
-const page = ref(1)
-const PAGE_SIZE = 50
-const totalCount = ref(0)
 const isFiltersOpen = ref(false)
 
 const accountTypeOptions = [
@@ -258,42 +261,31 @@ const sort = computed({
   }
 })
 
+const {
+  rows: postings,
+  loading,
+  error,
+  refresh,
+  apply,
+  page,
+  totalCount,
+  range,
+  filtered
+} = useLedgerQuery<ListPostingsResponse, Posting>({
+  key: 'register',
+  path: '/postings/query',
+  body: (page, pageSize) => toListPostingsRequest(filters.value, page, pageSize),
+  rows: response => response.postings,
+  pageSize: PAGE_SIZE
+})
+
 const rows = computed(() => postings.value.map(posting => ({
   posting,
   account: renderAccount(posting.account)
 })))
 
-const applyFilters = () => {
-  page.value = 1
-  fetchData()
-}
-
 const clearFilters = () => {
   filters.value = emptyFilters()
-  page.value = 1
-  fetchData()
+  return apply()
 }
-
-watch(page, () => {
-  fetchData()
-})
-
-const fetchData = async () => {
-  loading.value = true
-  try {
-    const request = toListPostingsRequest(filters.value, page.value, PAGE_SIZE)
-    const data = await fetchApi<ListPostingsResponse>('/postings/query', {
-      method: 'POST',
-      body: request
-    })
-    postings.value = data.postings || []
-    totalCount.value = Number(data.totalCount ?? 0)
-  } catch (err: any) {
-    useToast().add({ title: 'Error fetching postings', description: err.message, color: 'error' })
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(() => fetchData())
 </script>
