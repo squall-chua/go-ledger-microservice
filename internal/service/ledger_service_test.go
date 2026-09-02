@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -262,4 +264,52 @@ func balanceOf(t *testing.T, balances []*pb.AccountBalance, want *pb.Account) *m
 	}
 	t.Fatalf("no balance for account %v", want)
 	return nil
+}
+
+func TestConcurrentOppositeTransfersDoNotDeadlock(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(transfer("opening", "opening deposit", opening, cash, usd(1000, 0)))
+
+	// Half the writers move money one way between the same two accounts and
+	// half move it the other way, so their postings name the accounts in
+	// opposite orders. Whatever order the rows are locked in has to be the same
+	// for both halves or they deadlock on each other.
+	const pairs = 20
+	errs := make(chan error, 2*pairs)
+	var wg sync.WaitGroup
+	for i := range pairs {
+		for _, request := range []*pb.RecordTransactionRequest{
+			transfer(fmt.Sprintf("out-%d", i), "cash to savings", cash, savings, usd(1, 0)),
+			transfer(fmt.Sprintf("in-%d", i), "savings to cash", savings, cash, usd(1, 0)),
+		} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := h.record(request)
+				errs <- err
+			}()
+		}
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err, "concurrent opposite transfers must all succeed")
+	}
+	assertMoney(t, usd(1000, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{Account: cash}), cash))
+}
+
+func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {
+	h := newHarness(t)
+
+	h.mustRecord(transfer("key-lower", "lower case", opening, cash, amount("usd", 100, 0)))
+	transaction := h.mustRecord(transfer("key-upper", "upper case", opening, cash, amount("USD", 50, 0)))
+
+	// The second transaction carried on from the first, so both landed in the
+	// same bucket, stored under the upper case code.
+	assertMoney(t, usd(150, 0), transaction.Postings[0].Balance)
+
+	balances := h.balances(&pb.ListAccountBalancesRequest{Account: cash})
+	require.Len(t, balances, 1, "usd and USD are one balance, not two")
+	assertMoney(t, usd(150, 0), balances[0].Balance)
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -34,6 +35,11 @@ func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTra
 	if err != nil {
 		if errors.Is(err, repository.ErrIdempotencyKeyExists) {
 			return nil, status.Error(codes.AlreadyExists, "idempotency key already recorded")
+		}
+		// A deadlock or a serialization failure wrote nothing and is worth
+		// retrying, so the caller is told that rather than "internal".
+		if repository.IsRetryable(err) {
+			return nil, status.Errorf(codes.Aborted, "the transaction was not recorded, try again: %v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to record transaction: %v", err)
 	}
@@ -80,9 +86,12 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 		if amount.IsZero() {
 			return draft, status.Errorf(codes.InvalidArgument, "posting %d has a zero amount", i)
 		}
+		// The currency code is case-insensitive, so it is normalised here at the
+		// write boundary and only ever stored upper case.
+		currency := strings.ToUpper(posting.Amount.CurrencyCode)
 		if currencyCode == "" {
-			currencyCode = posting.Amount.CurrencyCode
-		} else if currencyCode != posting.Amount.CurrencyCode {
+			currencyCode = currency
+		} else if currencyCode != currency {
 			return draft, status.Error(codes.InvalidArgument, "a transaction carries a single currency")
 		}
 
@@ -93,7 +102,7 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 				User: posting.Account.User,
 				Name: posting.Account.Name,
 			},
-			CurrencyCode: posting.Amount.CurrencyCode,
+			CurrencyCode: currency,
 			Amount:       amount,
 		})
 	}

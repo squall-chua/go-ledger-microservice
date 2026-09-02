@@ -3,12 +3,14 @@
 package repository
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,6 +44,12 @@ type Account struct {
 	Type string
 	User string
 	Name string
+}
+
+// balanceKey identifies one balance snapshot row: an account and one currency.
+type balanceKey struct {
+	Account
+	CurrencyCode string
 }
 
 // PostingDraft is one leg of a transaction about to be recorded.
@@ -99,6 +107,25 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 		return nil, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
+
+	// Take every balance row this transaction touches up front, in one order
+	// all writers agree on, so two transactions moving money between the same
+	// accounts in opposite directions cannot deadlock on each other's rows. The
+	// upsert seeds the row if the account is new and locks it either way; it
+	// leaves the balance alone, the postings loop below applies the amounts.
+	for _, key := range lockOrder(draft.Postings) {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO account_balances
+				(account_type, account_user, account_name, currency_code, balance, last_date)
+			VALUES ($1, $2, $3, $4, 0, $5)
+			ON CONFLICT (account_type, account_user, account_name, currency_code)
+			DO UPDATE SET balance = account_balances.balance`,
+			key.Type, key.User, key.Name, key.CurrencyCode, draft.Date,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// The unique constraint on idempotency_key is what serializes concurrent
 	// duplicates.
@@ -239,7 +266,33 @@ func (r *Repository) ListAccountBalances(ctx context.Context, filter BalanceFilt
 	return balances, rows.Err()
 }
 
+// lockOrder is the distinct balance rows a transaction touches, in the single
+// total order every writer locks them in.
+func lockOrder(postings []PostingDraft) []balanceKey {
+	keys := make([]balanceKey, 0, len(postings))
+	for _, posting := range postings {
+		keys = append(keys, balanceKey{Account: posting.Account, CurrencyCode: posting.CurrencyCode})
+	}
+	slices.SortFunc(keys, func(a, b balanceKey) int {
+		return cmp.Or(
+			strings.Compare(a.Type, b.Type),
+			strings.Compare(a.User, b.User),
+			strings.Compare(a.Name, b.Name),
+			strings.Compare(a.CurrencyCode, b.CurrencyCode),
+		)
+	})
+	return slices.Compact(keys)
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// IsRetryable reports whether the database refused a write for a reason that
+// goes away on its own: a deadlock or a serialization failure. The same call
+// made again is expected to succeed.
+func IsRetryable(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "40P01" || pgErr.Code == "40001")
 }
