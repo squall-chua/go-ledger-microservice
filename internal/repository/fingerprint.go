@@ -24,7 +24,10 @@ import (
 func fingerprintOf(draft TransactionDraft) string {
 	sum := sha256.New()
 	// Every part is written length-prefixed, so no value can be mistaken for a
-	// delimiter and two different drafts cannot hash the same.
+	// delimiter. Each count is terminated with a semicolon for the same reason:
+	// without it the count's digits run straight into the following length
+	// prefix, the two decimal runs merge, and the pre-image can be re-cut into a
+	// different draft that hashes the same.
 	field := func(parts ...string) {
 		for _, part := range parts {
 			fmt.Fprintf(sum, "%d:%s", len(part), part)
@@ -36,12 +39,12 @@ func fingerprintOf(draft TransactionDraft) string {
 		field("date", draft.Date.UTC().Format(time.RFC3339Nano))
 	}
 
-	fmt.Fprintf(sum, "metadata=%d", len(draft.Metadata))
+	fmt.Fprintf(sum, "metadata=%d;", len(draft.Metadata))
 	for _, key := range slices.Sorted(maps.Keys(draft.Metadata)) {
 		field(key, draft.Metadata[key])
 	}
 
-	fmt.Fprintf(sum, "postings=%d", len(draft.Postings))
+	fmt.Fprintf(sum, "postings=%d;", len(draft.Postings))
 	for _, posting := range draft.Postings {
 		field(posting.Account.Type, posting.Account.User, posting.Account.Name,
 			posting.CurrencyCode, posting.Amount.String())

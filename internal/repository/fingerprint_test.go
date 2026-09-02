@@ -1,11 +1,13 @@
 package repository
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFingerprintCoversTheFinancialContentAndNothingElse(t *testing.T) {
@@ -118,4 +120,32 @@ func TestFingerprintNormalisesAmounts(t *testing.T) {
 	}
 
 	assert.Equal(t, fingerprintOf(draft(decimal.NewFromInt(50))), fingerprintOf(draft(decimal.New(5000, -2))))
+}
+
+// The pair count used to be written without a terminator, so its digits ran
+// straight into the following length prefix. That let one draft's pre-image be
+// re-cut into a different draft's: a single metadata pair whose key began "0:2:"
+// hashed the same as eleven pairs. A caller retrying under a colliding key got
+// somebody else's transaction back and its own money was never recorded.
+func TestFingerprintDoesNotCollideOnCountBoundaries(t *testing.T) {
+	postings := []PostingDraft{
+		{Account: Account{"ASSETS", "alice", "Checking"}, CurrencyCode: "USD", Amount: decimal.NewFromInt(1)},
+	}
+	draft := func(metadata map[string]string) TransactionDraft {
+		return TransactionDraft{Note: "note", Metadata: metadata, Postings: postings}
+	}
+
+	filler := strings.Repeat("F", 46)
+	one := draft(map[string]string{
+		"aa0:2:ab50:x": filler + "1:b0:1:c0:1:d0:1:e0:1:f0:1:g0:1:h0:1:i0:1:j0:",
+	})
+	eleven := draft(map[string]string{
+		"aa": "", "ab": "x91:" + filler,
+		"b": "", "c": "", "d": "", "e": "", "f": "", "g": "", "h": "", "i": "", "j": "",
+	})
+
+	require.Len(t, one.Metadata, 1)
+	require.Len(t, eleven.Metadata, 11)
+	assert.NotEqual(t, fingerprintOf(one), fingerprintOf(eleven),
+		"a count must not merge into the length prefix that follows it")
 }
