@@ -36,9 +36,13 @@ import (
 func main() {
 	port := flag.String("port", "8080", "port to listen on")
 	databaseURL := flag.String("database-url", "postgres://postgres:postgres@localhost:5432/ledger?sslmode=disable", "Postgres connection URL")
-	corsOrigins := flag.String("cors-origins", "*", "comma-separated list of allowed CORS origins")
-	jwtSecret := flag.String("jwt-secret", "super-secret-key", "secret key for JWT validation")
+	corsOrigins := flag.String("cors-origins", "", "comma-separated list of allowed CORS origins; empty disables CORS")
+	jwtSecret := flag.String("jwt-secret", "", "secret key for JWT validation; required")
 	flag.Parse()
+
+	if *jwtSecret == "" {
+		log.Fatal("-jwt-secret is required: pass the key service tokens are signed with")
+	}
 
 	ctx := context.Background()
 
@@ -122,18 +126,26 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/", gwmux)
 
-	originsList := strings.Split(*corsOrigins, ",")
-	for i := range originsList {
-		originsList[i] = strings.TrimSpace(originsList[i])
-	}
+	// CORS stays off unless an origin list is given. The web UI is same-origin
+	// behind its own proxy, so it needs none. An empty list would make rs/cors
+	// allow every origin, so skip the handler rather than pass one.
+	var corsHandler http.Handler = mux
+	if *corsOrigins != "" {
+		originsList := strings.Split(*corsOrigins, ",")
+		for i := range originsList {
+			originsList[i] = strings.TrimSpace(originsList[i])
+		}
 
-	c := cors.New(cors.Options{
-		AllowedOrigins:   originsList, // specify allowed origin
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowedHeaders:   []string{"*"}, // allow all headers for simplicity, or specify Authorization, Content-Type, etc.
-		AllowCredentials: true,
-	})
-	corsHandler := c.Handler(mux)
+		c := cors.New(cors.Options{
+			AllowedOrigins: originsList,
+			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
+			// Named, not "*": browsers reject a wildcard header list on a
+			// credentialed request.
+			AllowedHeaders:   []string{"Authorization", "Content-Type"},
+			AllowCredentials: true,
+		})
+		corsHandler = c.Handler(mux)
+	}
 
 	log.Printf("Starting Multiplexed gRPC & HTTP server on %s\n", addr)
 

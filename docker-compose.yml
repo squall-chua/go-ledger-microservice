@@ -1,13 +1,11 @@
 # A local development stack. Every default here is a development value, and
 # none of them is fit to deploy:
 #
-#   - the JWT secret is the well-known one from the README, so anyone can mint
-#     a token that this ledger will trust
-#   - CORS allows any origin
 #   - Postgres uses postgres/postgres and publishes port 5432 on the host
 #
-# Set LEDGER_JWT_SECRET and LEDGER_CORS_ORIGINS for anything reachable by
-# someone else. See "Running the server" in README.md.
+# LEDGER_JWT_SECRET has no default and must be set, or compose refuses to
+# start. CORS is off unless you set LEDGER_CORS_ORIGINS. See "Running the
+# server" in README.md.
 services:
   postgres:
     image: postgres:17-alpine
@@ -32,8 +30,8 @@ services:
     command:
       - --port=8080
       - --database-url=postgres://postgres:postgres@postgres:5432/ledger?sslmode=disable
-      - --jwt-secret=${LEDGER_JWT_SECRET:-super-secret-key}
-      - --cors-origins=${LEDGER_CORS_ORIGINS:-*}
+      - --jwt-secret=${LEDGER_JWT_SECRET:?set LEDGER_JWT_SECRET to the key your service tokens are signed with}
+      - --cors-origins=${LEDGER_CORS_ORIGINS:-}
     ports:
       - "8080:8080"
     depends_on:
