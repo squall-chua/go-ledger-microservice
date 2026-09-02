@@ -2,10 +2,20 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
+	_ "google.golang.org/protobuf/types/known/emptypb"
 )
 
 type mockTokenValidator struct {
@@ -17,100 +27,150 @@ func (m *mockTokenValidator) ValidateToken(ctx context.Context, token string) (*
 	return m.tokenInfo, m.err
 }
 
-func TestAuthInterceptor(t *testing.T) {
-	// For testing AuthInterceptor we can use a dummy UnaryServerInfo.
-	// We'll pass a non-existent method to bypass Protobuf descriptor extraction,
-	// because the global registry might not be fully initialized in pure unit tests without importing the pb package.
-	// Wait, actually let's test the pass-through behavior.
-	validator := &mockTokenValidator{
-		tokenInfo: &TokenInfo{
-			Scopes: []string{"read"},
-			Roles:  []string{"user"},
-		},
-	}
+func bearerContext() context.Context {
+	return metadata.NewIncomingContext(context.Background(),
+		metadata.Pairs("authorization", "bearer any-token"))
+}
 
-	interceptor := AuthInterceptor(validator)
+const (
+	recordMethod   = "/v1.LedgerService/RecordTransaction" // declares ledger:write
+	balancesMethod = "/v1.LedgerService/ListAccountBalances"
+)
 
+func TestAuthInterceptorScopes(t *testing.T) {
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return "success", nil
 	}
 
-	// 1. Unknown method (bypasses auth logic)
-	info := &grpc.UnaryServerInfo{
-		FullMethod: "/UnknownService/UnknownMethod",
+	tests := []struct {
+		name   string
+		method string
+		scopes []string
+		want   codes.Code
+	}{
+		{"write scope records", recordMethod, []string{"ledger:write"}, codes.OK},
+		{"read scope queries", balancesMethod, []string{"ledger:read"}, codes.OK},
+		{"both scopes do both", recordMethod, []string{"ledger:read", "ledger:write"}, codes.OK},
+		{"read scope may not record", recordMethod, []string{"ledger:read"}, codes.PermissionDenied},
+		{"write scope may not query", balancesMethod, []string{"ledger:write"}, codes.PermissionDenied},
+		{"no scopes at all", recordMethod, nil, codes.PermissionDenied},
 	}
 
-	_, err := interceptor(context.Background(), nil, info, handler)
-	if err != nil {
-		t.Fatalf("expected no error for unknown method, got %v", err)
-	}
-
-	// 2. Setup a valid method from the compiled proto (RecordTransaction)
-	// Must anonymously import pb to populate protoregistry.GlobalFiles if not already
-	infoValid := &grpc.UnaryServerInfo{
-		FullMethod: "/v1.LedgerService/RecordTransaction", // requires admin/user roles
-	}
-
-	// 3. No metadata -> missing token error
-	_, err = interceptor(context.Background(), nil, infoValid, handler)
-	if err == nil {
-		t.Fatal("expected error for missing token")
-	}
-
-	// 4. Valid token, sufficient scopes/roles
-	md := metadata.Pairs("authorization", "bearer valid-token")
-	ctxAuth := metadata.NewIncomingContext(context.Background(), md)
-
-	// RecordTransaction expects either `admin` or `user`
-	validator.tokenInfo.Scopes = []string{}
-	validator.tokenInfo.Roles = []string{"admin"}
-	_, err = interceptor(ctxAuth, nil, infoValid, handler)
-	if err != nil {
-		t.Fatalf("expected no error for valid token and scopes, got %v", err)
-	}
-
-	// 5. Invalid token (validator returns error)
-	validator.err = context.DeadlineExceeded
-	_, err = interceptor(ctxAuth, nil, infoValid, handler)
-	if err == nil {
-		t.Fatal("expected error for token validation failure")
-	}
-	validator.err = nil
-
-	// 6. Missing scope (Not Applicable for LedgerService since it doesn't require scopes yet, but testing the logic)
-	// For LedgerService, it requires no scopes, so missing scope doesn't fail unless there's a scope rule.
-	// Since RecordTransaction has no required scopes, we can just skip this test or mock a scope.
-	// We'll skip it for LedgerService.
-	// validator.tokenInfo.Scopes = []string{"read:items"} // missing write:items
-	// _, err = interceptor(ctxAuth, nil, infoValid, handler)
-	// if err == nil {
-	// 	t.Fatal("expected error for missing scope")
-	// }
-
-	// 7. Missing role
-	validator.tokenInfo.Scopes = []string{}
-	validator.tokenInfo.Roles = []string{"guest"} // missing admin or user
-	_, err = interceptor(ctxAuth, nil, infoValid, handler)
-	if err == nil {
-		t.Fatal("expected error for missing role")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			interceptor := AuthInterceptor(&mockTokenValidator{tokenInfo: &TokenInfo{Scopes: tt.scopes}})
+			_, err := interceptor(bearerContext(), nil, &grpc.UnaryServerInfo{FullMethod: tt.method}, handler)
+			if got := status.Code(err); got != tt.want {
+				t.Fatalf("expected %v, got %v (%v)", tt.want, got, err)
+			}
+		})
 	}
 }
 
-func TestContextWithTokenInfo(t *testing.T) {
-	ctx := context.Background()
-	info := &TokenInfo{
-		Scopes: []string{"read"},
-		Roles:  []string{"admin"},
+func TestAuthInterceptorUnauthenticated(t *testing.T) {
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+	info := &grpc.UnaryServerInfo{FullMethod: recordMethod}
+
+	// No token at all.
+	interceptor := AuthInterceptor(&mockTokenValidator{tokenInfo: &TokenInfo{Scopes: []string{"ledger:write"}}})
+	_, err := interceptor(context.Background(), nil, info, handler)
+	if got := status.Code(err); got != codes.Unauthenticated {
+		t.Fatalf("missing token: expected Unauthenticated, got %v (%v)", got, err)
 	}
 
-	ctx = ContextWithTokenInfo(ctx, info)
+	// A token the validator rejects.
+	interceptor = AuthInterceptor(&mockTokenValidator{err: errors.New("bad token")})
+	_, err = interceptor(bearerContext(), nil, info, handler)
+	if got := status.Code(err); got != codes.Unauthenticated {
+		t.Fatalf("rejected token: expected Unauthenticated, got %v (%v)", got, err)
+	}
+}
 
-	retrieved, ok := TokenInfoFromContext(ctx)
-	if !ok {
-		t.Fatal("expected to find TokenInfo in context")
+// A method the interceptor cannot read scopes from is a method it cannot
+// authorize, so it is refused rather than let through. Called with no token at
+// all: the refusal is the annotation's absence, not the caller's.
+func TestAuthInterceptorDeniesMethodsWithoutRule(t *testing.T) {
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+	interceptor := AuthInterceptor(&mockTokenValidator{tokenInfo: &TokenInfo{}})
+
+	methods := map[string]string{
+		"declares no required_scopes": probeMethod,
+		"absent from the registry":    "/v1.LedgerService/NoSuchMethod",
+		"not a method name":           "not-a-method",
+		"not a method descriptor":     "/v1/RecordTransactionRequest",
 	}
 
-	if len(retrieved.Scopes) != 1 || retrieved.Scopes[0] != "read" {
-		t.Errorf("unexpected scopes: %v", retrieved.Scopes)
+	for name, method := range methods {
+		t.Run(name, func(t *testing.T) {
+			_, err := interceptor(context.Background(), nil,
+				&grpc.UnaryServerInfo{FullMethod: method}, handler)
+			if got := status.Code(err); got != codes.PermissionDenied {
+				t.Fatalf("expected PermissionDenied, got %v (%v)", got, err)
+			}
+		})
+	}
+}
+
+// The health check is served alongside the ledger, carries no scopes and stays
+// reachable without a token.
+func TestAuthInterceptorAllowsHealthCheck(t *testing.T) {
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+	interceptor := AuthInterceptor(&mockTokenValidator{tokenInfo: &TokenInfo{}})
+
+	_, err := interceptor(context.Background(), nil,
+		&grpc.UnaryServerInfo{FullMethod: grpc_health_v1.Health_Check_FullMethodName}, handler)
+	if err != nil {
+		t.Fatalf("expected the health check to pass, got %v", err)
+	}
+}
+
+// The interceptor is unary only, so a streaming RPC would reach its handler
+// unauthorized however it were annotated. LedgerService declares none; this
+// fails the day one is added, which is the day a stream interceptor is needed.
+func TestLedgerServiceDeclaresNoStreamingRPCs(t *testing.T) {
+	desc, err := protoregistry.GlobalFiles.FindDescriptorByName("v1.LedgerService")
+	if err != nil {
+		t.Fatalf("LedgerService not in the registry: %v", err)
+	}
+
+	methods := desc.(protoreflect.ServiceDescriptor).Methods()
+	for i := range methods.Len() {
+		if method := methods.Get(i); method.IsStreamingClient() || method.IsStreamingServer() {
+			t.Errorf("%s streams; AuthInterceptor guards unary calls only", method.FullName())
+		}
+	}
+}
+
+// probeMethod is an RPC registered without an `auth.v1.rule`, standing in for
+// one someone adds and forgets to annotate. It is registered here rather than
+// declared in ledger.proto so the ledger's own API carries no unguarded RPC.
+const probeMethod = "/middleware.probe.v1.ProbeService/Unannotated"
+
+func init() {
+	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+		Name:       proto.String("middleware/probe/v1/probe.proto"),
+		Package:    proto.String("middleware.probe.v1"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/empty.proto"},
+		Service: []*descriptorpb.ServiceDescriptorProto{{
+			Name: proto.String("ProbeService"),
+			Method: []*descriptorpb.MethodDescriptorProto{{
+				Name:       proto.String("Unannotated"),
+				InputType:  proto.String(".google.protobuf.Empty"),
+				OutputType: proto.String(".google.protobuf.Empty"),
+			}},
+		}},
+	}, protoregistry.GlobalFiles)
+	if err != nil {
+		panic(err)
+	}
+	if err := protoregistry.GlobalFiles.RegisterFile(file); err != nil {
+		panic(err)
 	}
 }

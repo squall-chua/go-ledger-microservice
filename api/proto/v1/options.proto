@@ -6,9 +6,10 @@ option go_package = "github.com/squall-chua/go-ledger-microservice/api/v1;v1";
 
 import "google/protobuf/descriptor.proto";
 
+// Scopes a caller's token must carry to reach the method. Read from the
+// space-delimited `scope` claim. See docs/adr/0003-trusted-service-callers-only.md.
 message AuthRule {
   repeated string required_scopes = 1;
-  repeated string required_roles = 2;
 }
 
 extend google.protobuf.MethodOptions {

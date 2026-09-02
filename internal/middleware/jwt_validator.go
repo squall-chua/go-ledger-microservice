@@ -34,21 +34,9 @@ func (v *JwtTokenValidator) ValidateToken(ctx context.Context, tokenStr string) 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		info := &TokenInfo{}
 
+		// The standard `scope` claim: one space-delimited string.
 		if scopeClaim, ok := claims["scope"].(string); ok {
-			info.Scopes = strings.Split(scopeClaim, " ")
-		}
-
-		if subClaim, ok := claims["sub"].(string); ok {
-			info.UserID = subClaim
-		}
-
-		// Assuming roles are provided in a "roles" claim as an array of strings
-		if rolesClaim, ok := claims["roles"].([]interface{}); ok {
-			for _, role := range rolesClaim {
-				if roleStr, ok := role.(string); ok {
-					info.Roles = append(info.Roles, roleStr)
-				}
-			}
+			info.Scopes = strings.Fields(scopeClaim)
 		}
 
 		return info, nil

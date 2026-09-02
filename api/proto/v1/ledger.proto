@@ -6,7 +6,6 @@ option go_package = "github.com/squall-chua/go-ledger-microservice/api/v1";
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/any.proto";
 import "google/type/money.proto";
 import "api/proto/v1/options.proto";
 
@@ -19,19 +18,23 @@ enum AccountType {
   ACCOUNT_TYPE_EXPENSES = 5;
 }
 
-message AccountName {
+// An Account is identified by the exact composite (type, user, name). There is
+// no hierarchy, no wildcard and no roll-up: `name` is opaque and every field is
+// matched exactly. See docs/adr/0002-flat-account-names.md.
+message Account {
   AccountType type = 1;
-  string user = 2; // Optional, can be empty or "*".
-  string name = 3; // The specific account name or wildcard "*".
+  string user = 2; // Free-form owner label. Never an authenticated identity.
+  string name = 3; // Opaque label, e.g. "Checking". Never split, never rolled up.
 }
 
 message Posting {
   string id = 1;
   string transaction_id = 2;
-  AccountName account = 3;
-  google.type.Money amount = 4; 
-  google.type.Money balance = 5; 
-  google.protobuf.Timestamp created_at = 7;
+  Account account = 3;
+  google.type.Money amount = 4;
+  google.type.Money balance = 5; // Running balance of the Account after this leg.
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp date = 7; // Transaction date: supplied by the caller or stamped by the ledger.
 }
 
 message Transaction {
@@ -39,7 +42,7 @@ message Transaction {
   string idempotency_key = 2;
   google.protobuf.Timestamp date = 3;
   string note = 4;
-  map<string, google.protobuf.Any> metadata = 5;
+  map<string, string> metadata = 5;
   repeated Posting postings = 6;
   google.protobuf.Timestamp created_at = 7;
 }
@@ -48,67 +51,67 @@ message RecordTransactionRequest {
   string idempotency_key = 1;
   google.protobuf.Timestamp date = 2;
   string note = 3;
-  map<string, google.protobuf.Any> metadata = 4;
-  
+  map<string, string> metadata = 4;
+
   message PostingInput {
-    AccountName account = 1;
-    google.type.Money amount = 2; 
+    Account account = 1;
+    google.type.Money amount = 2;
   }
   repeated PostingInput postings = 5;
-  repeated AccountName verify_non_negative_balances = 6;
+  repeated Account verify_non_negative_balances = 6;
 }
 
 message RecordTransactionResponse {
   Transaction transaction = 1;
+  // True when this was an Idempotency replay: the key had already recorded
+  // this exact content, so the original Transaction is returned and nothing
+  // new was written.
+  bool replayed = 2;
 }
 
-message GetAccountBalanceRequest {
-  AccountName account = 1; // Structured target. Empty user or name fields will be treated as wildcards like `*`.
-  string currency = 2; // Optional currency filter
+// An AccountFilter narrows a read to the Accounts whose fields match it
+// exactly. A field it leaves unset is not filtered on at all; a field it sets
+// to the empty string matches only the empty string, so an Account with no
+// user can be asked for on its own. Nothing here is ever a wildcard.
+message AccountFilter {
+  AccountType type = 1; // Unspecified means "not filtered": no Account carries it.
+  optional string user = 2;
+  optional string name = 3;
 }
 
-message GetAccountBalanceResponse {
+// Every filter is optional; supplying none returns the Trial balance.
+message ListAccountBalancesRequest {
+  AccountFilter account = 1;
+  string currency_code = 2;
+}
+
+message ListAccountBalancesResponse {
   repeated AccountBalance balances = 1;
 }
 
 message AccountBalance {
-  AccountName account = 1;
+  Account account = 1;
   google.type.Money balance = 2;
   google.protobuf.Timestamp updated_at = 3;
 }
 
-message MetadataFilter {
-  enum Operator {
-    OPERATOR_UNSPECIFIED = 0;
-    OPERATOR_EQUAL = 1;
-    OPERATOR_NOT_EQUAL = 2;
-    OPERATOR_GREATER_THAN = 3;
-    OPERATOR_LESS_THAN = 4;
-    OPERATOR_GREATER_THAN_OR_EQUAL = 5;
-    OPERATOR_LESS_THAN_OR_EQUAL = 6;
-    OPERATOR_PARTIAL_MATCH = 7; // e.g., String contains or regex
-  }
-
-  string key = 1; // The metadata key to match on
-  Operator operator = 2;
-  google.protobuf.Any value = 3; // The value to compare against
-}
-
+// Every filter is optional. The date range is half-open: start_date is
+// included and end_date is excluded, so adjacent periods never double-count.
 message TransactionFilter {
-  repeated string id = 1;
-  repeated string idempotency_key = 2;
-  google.protobuf.Timestamp start_date = 3;
-  google.protobuf.Timestamp end_date = 4;
-  string note = 5; // Partial match on the transaction note (wildcards supported by the repository adapter)
-  repeated MetadataFilter metadata_filters = 6;
-  string currency = 7; // Optional currency filter for transactions
+  string idempotency_key = 1; // Exact; matches at most one Transaction.
+  google.protobuf.Timestamp start_date = 2; // Transaction date, inclusive.
+  google.protobuf.Timestamp end_date = 3; // Transaction date, exclusive.
+  // Exact metadata pairs the Transaction has to carry. Every pair given has
+  // to match, key and value; a Transaction carrying more is still a match. An
+  // empty key is refused.
+  map<string, string> metadata = 4;
 }
 
 message ListTransactionsRequest {
   TransactionFilter filter = 1;
-  int32 page_size = 2;
-  int32 page_number = 3;
-  bool order_by_desc = 4; // If true, sort descending (newest first). If false, sort ascending.
+  int32 page_size = 2; // Defaults to 10, clamped to at most 100.
+  int32 page_number = 3; // One-based; below one is the first page.
+  bool order_by_ascending = 4; // Oldest Transaction date first. Default is newest first.
 }
 
 message ListTransactionsResponse {
@@ -116,18 +119,23 @@ message ListTransactionsResponse {
   int64 total_count = 2;
 }
 
+// A Register read: one Account's Postings over time. Every filter is optional
+// and the date range is half-open, as on the Transaction listing.
 message PostingFilter {
-  TransactionFilter transaction_filter = 1; // Carry over all transaction-level filters to filter the postings.
-  repeated string id = 2;
-  repeated string transaction_id = 3;
-  AccountName account = 4; // Structured target. Unspecified account type, empty user or name fields will be treated as wildcards like `*`.
+  AccountFilter account = 1;
+  string currency_code = 2;
+  google.protobuf.Timestamp start_date = 3; // Transaction date, inclusive.
+  google.protobuf.Timestamp end_date = 4; // Transaction date, exclusive.
+  // Matched against the parent Transaction's metadata — a Posting has none of
+  // its own. Same exact-pair rule as on the Transaction listing.
+  map<string, string> metadata = 5;
 }
 
 message ListPostingsRequest {
   PostingFilter filter = 1;
-  int32 page_size = 2;
-  int32 page_number = 3;
-  bool order_by_desc = 4; // If true, sort descending (newest first). If false, sort ascending.
+  int32 page_size = 2; // Defaults to 10, clamped to at most 100.
+  int32 page_number = 3; // One-based; below one is the first page.
+  bool order_by_ascending = 4; // Oldest Transaction date first. Default is newest first.
 }
 
 message ListPostingsResponse {
@@ -142,19 +150,17 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin", "user"]
+      required_scopes: ["ledger:write"]
     };
   }
 
-  rpc GetAccountBalance(GetAccountBalanceRequest) returns (GetAccountBalanceResponse) {
+  rpc ListAccountBalances(ListAccountBalancesRequest) returns (ListAccountBalancesResponse) {
     option (google.api.http) = {
-      // Changed to POST to allow sending the structured AccountName in the body,
-      // as nested path parameters in GET requests can be tricky with wildcard support.
       post: "/v1/ledger/accounts/balance"
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin", "user"]
+      required_scopes: ["ledger:read"]
     };
   }
 
@@ -164,7 +170,7 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin"]
+      required_scopes: ["ledger:read"]
     };
   }
 
@@ -174,7 +180,7 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin", "user"]
+      required_scopes: ["ledger:read"]
     };
   }
 }
