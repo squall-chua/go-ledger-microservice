@@ -17,8 +17,6 @@ import (
 	"github.com/squall-chua/go-ledger-microservice/internal/moneyfmt"
 	"github.com/squall-chua/go-ledger-microservice/internal/repository"
 	"github.com/squall-chua/go-ledger-microservice/internal/service"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -32,20 +30,6 @@ func getRepo() repository.LedgerRepository {
 	dbType := os.Getenv("DB_TYPE")
 	if dbType == "" {
 		dbType = "sqlite"
-	}
-
-	if dbType == "mongo" {
-		uri := os.Getenv("MONGO_URI")
-		if uri == "" {
-			uri = "mongodb://localhost:27017/ledger_db"
-		}
-		clientOpts := options.Client().ApplyURI(uri)
-		client, err := mongo.Connect(clientOpts)
-		if err != nil {
-			log.Fatalf("mongo connect error: %v", err)
-		}
-		db := client.Database("ledger_db")
-		return repository.NewMongoLedgerRepository(db)
 	}
 
 	dsn := os.Getenv("SQL_DSN")

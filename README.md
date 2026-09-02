@@ -11,11 +11,11 @@ This project takes significant inspiration from [ledger-cli](https://ledger-cli.
 - **Native Multi-Currency Support:** Amounts are paired with their currency identifiers (e.g., `1000USD`, `250MYR`), ensuring accuracy across varied financial flows.
 - **Immutability and Auditability:** Emulating appending to a journal file, transactions are recorded as an immutable sequence of events, accurately affecting a running balance.
 
-While `ledger-cli` operates entirely on local text files, this microservice scales those principles to a gRPC/HTTP backend architecture with robust SQL and MongoDB persistence layers, suited for multi-user distributed systems.
+While `ledger-cli` operates entirely on local text files, this microservice scales those principles to a gRPC/HTTP backend architecture with a robust SQL persistence layer, suited for multi-user distributed systems.
 
 ## How to use the CLI
 
-The project includes a CLI located in `./cmd/cli` that can be run natively to interact directly with the datastore. By default, it connects to a local SQLite database (`ledger.db`) but supports PostgreSQL, MySQL, and MongoDB via environment variables.
+The project includes a CLI located in `./cmd/cli` that can be run natively to interact directly with the datastore. By default, it connects to a local SQLite database (`ledger.db`) but supports PostgreSQL, MySQL, and SQL Server via environment variables.
 
 ### Available Commands
 

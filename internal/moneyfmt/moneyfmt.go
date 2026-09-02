@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/shopspring/decimal"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"google.golang.org/genproto/googleapis/type/money"
 )
 
@@ -28,14 +27,4 @@ func FromDecimal(d decimal.Decimal, currency string) *money.Money {
 		Units:        units,
 		Nanos:        int32(nanos),
 	}
-}
-
-// ToDecimal128 converts decimal to MongoDB Decimal128.
-func ToDecimal128(d decimal.Decimal) (bson.Decimal128, error) {
-	return bson.ParseDecimal128(d.String())
-}
-
-// FromDecimal128 converts MongoDB Decimal128 to decimal.
-func FromDecimal128(d bson.Decimal128) (decimal.Decimal, error) {
-	return decimal.NewFromString(d.String())
 }
