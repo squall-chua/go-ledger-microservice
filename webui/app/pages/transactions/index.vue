@@ -67,6 +67,36 @@
             class="w-full"
           />
         </UFormField>
+        <UFormField
+          label="Idempotency Key"
+          help="Matches at most one transaction."
+        >
+          <UInput
+            v-model="filters.idempotencyKey"
+            placeholder="The key the write was sent with"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField
+          label="Metadata Key"
+          help="Blank filters nothing."
+        >
+          <UInput
+            v-model="filters.metadataKey"
+            placeholder="order_id"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField
+          label="Metadata Value"
+          help="Matched exactly, with the key."
+        >
+          <UInput
+            v-model="filters.metadataValue"
+            placeholder="A-42"
+            class="w-full"
+          />
+        </UFormField>
       </div>
       <div class="mt-4 flex justify-end gap-3">
         <UButton
@@ -108,10 +138,10 @@
           class="text-4xl text-gray-400 mb-2"
         />
         <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-          No transactions recorded
+          {{ wasFiltered ? 'No transactions match these filters' : 'No transactions recorded' }}
         </h3>
         <p class="text-gray-500">
-          Your ledger history is empty.
+          {{ wasFiltered ? 'Nothing on the ledger matches. An idempotency key with no match means that write never landed.' : 'Your ledger history is empty.' }}
         </p>
       </div>
 
@@ -201,6 +231,8 @@ const page = ref(1)
 const pageSize = 50
 const totalCount = ref(0)
 const isFiltersOpen = ref(false)
+/** Whether the list on screen was narrowed, so the empty state can say so. */
+const wasFiltered = ref(false)
 
 const sortOptions = [
   { label: 'Newest First', value: 'newest' },
@@ -210,7 +242,10 @@ const sortOptions = [
 const emptyFilters = (): TransactionFilterControls => ({
   startDate: '',
   endDate: '',
-  sort: 'newest'
+  sort: 'newest',
+  idempotencyKey: '',
+  metadataKey: '',
+  metadataValue: ''
 })
 
 const filters = ref(emptyFilters())
@@ -238,6 +273,7 @@ const fetchData = async () => {
       page: page.value,
       pageSize
     })
+    wasFiltered.value = request.filter !== undefined
 
     const data = await fetchApi<ListTransactionsResponse>('/transactions/query', {
       method: 'POST',
