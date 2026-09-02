@@ -82,8 +82,8 @@ One port serves both gRPC and REST, and Prometheus metrics are on `/metrics`.
 | --- | --- | --- |
 | `--port` | `8080` | Port serving gRPC and REST together |
 | `--database-url` | `postgres://postgres:postgres@localhost:5432/ledger?sslmode=disable` | Postgres connection URL |
-| `--jwt-secret` | `super-secret-key` | Symmetric key a service token is verified with |
-| `--cors-origins` | `*` | Comma-separated allowed CORS origins |
+| `--jwt-secret` | none, required | Symmetric key a service token is verified with. The server refuses to start without it |
+| `--cors-origins` | empty | Comma-separated allowed CORS origins. Empty turns CORS off |
 
 ### With Docker Compose
 
@@ -99,17 +99,21 @@ The ledger listens on `localhost:8080` and Postgres on `localhost:5432`.
 Ledger data is kept in a named volume, so it survives `docker compose down`;
 add `-v` to that command to throw it away.
 
-Both secrets default to the same development values used above. Override them
-in the environment when you want something else:
+`LEDGER_JWT_SECRET` has no default. Compose refuses to start without it:
 
 ```bash
-LEDGER_JWT_SECRET=another-secret docker compose up --build
+LEDGER_JWT_SECRET=super-secret-key docker compose up --build
 ```
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `LEDGER_JWT_SECRET` | `super-secret-key` | Passed to `--jwt-secret` |
-| `LEDGER_CORS_ORIGINS` | `*` | Passed to `--cors-origins` |
+| `LEDGER_JWT_SECRET` | none, required | Passed to `--jwt-secret` |
+| `LEDGER_CORS_ORIGINS` | empty | Passed to `--cors-origins` |
+
+The web UI does not need CORS. It calls the ledger through its own proxy, so
+the browser sees one origin. Set `LEDGER_CORS_ORIGINS` only when a browser on
+another origin must reach the ledger directly, and name the origins; ADR-0003
+explains why that should be rare.
 
 ## Tokens and scopes
 
