@@ -16,7 +16,7 @@
           variant="soft"
           icon="i-lucide-arrow-left"
         >
-          Back to Register
+          Back to Transactions
         </UButton>
       </div>
     </div>
@@ -28,7 +28,7 @@
       >
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
           <UFormField
-            label="Description / Note"
+            label="Note"
             required
             class="md:col-span-1"
           >
@@ -41,6 +41,7 @@
           </UFormField>
           <UFormField
             label="Transaction Date"
+            hint="Blank lets the ledger stamp it"
             class="md:col-span-1"
           >
             <UInput
@@ -50,18 +51,29 @@
             />
           </UFormField>
           <UFormField
-            label="Currency"
+            label="Idempotency Key"
+            hint="Paste one or generate it"
             class="md:col-span-1"
           >
-            <USelectMenu
-              v-model="form.currency"
-              :items="CURRENCIES"
-              class="w-full"
-            />
+            <div class="flex gap-2">
+              <UInput
+                v-model="form.idempotencyKey"
+                placeholder="e.g. a UUID from the system that asked for this entry"
+                class="w-full"
+              />
+              <UButton
+                color="neutral"
+                variant="soft"
+                icon="i-lucide-refresh-cw"
+                @click="generateIdempotencyKey"
+              >
+                Generate
+              </UButton>
+            </div>
           </UFormField>
         </div>
 
-        <UDivider label="Postings" />
+        <USeparator label="Postings" />
 
         <div class="space-y-4">
           <div
@@ -78,7 +90,7 @@
               @click="removePosting(index)"
             />
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-8">
               <UFormField
                 label="Account Type"
                 class="md:col-span-1"
@@ -90,25 +102,23 @@
                 />
               </UFormField>
               <UFormField
-                label="Account User"
+                label="User"
                 class="md:col-span-1"
               >
                 <UInput
                   v-model="posting.user"
-                  placeholder="*"
+                  placeholder="e.g. alice"
                   class="w-full"
-                  required
                 />
               </UFormField>
               <UFormField
-                label="Account Name"
+                label="Name"
                 class="md:col-span-1"
               >
                 <UInput
                   v-model="posting.name"
                   placeholder="e.g. Checking"
                   class="w-full"
-                  required
                 />
               </UFormField>
               <UFormField
@@ -122,6 +132,16 @@
                   placeholder="0.00"
                   class="w-full"
                   required
+                />
+              </UFormField>
+              <UFormField
+                label="Currency"
+                class="md:col-span-1"
+              >
+                <USelectMenu
+                  v-model="posting.currency"
+                  :items="CURRENCIES"
+                  class="w-full"
                 />
               </UFormField>
             </div>
@@ -140,10 +160,78 @@
 
           <div class="flex items-center gap-4">
             <span class="text-sm font-medium text-gray-500">Balance Checker:</span>
-            <span :class="['text-lg font-bold', balanceSum === 0 ? 'text-emerald-500' : 'text-red-500']">
-              Sum = {{ balanceSum }} <span class="text-sm font-normal text-gray-500">({{ form.currency }})</span>
+            <span :class="['text-lg font-bold', sumNanos === 0 ? 'text-emerald-500' : 'text-red-500']">
+              Sum = {{ sumNanos / 1e9 }} <span class="text-sm font-normal text-gray-500">({{ form.postings[0]?.currency }})</span>
             </span>
           </div>
+        </div>
+
+        <USeparator label="Metadata" />
+
+        <div class="space-y-4">
+          <p
+            v-if="form.metadata.length === 0"
+            class="text-sm text-gray-500"
+          >
+            No metadata. Add a key and value pair to trace this entry back to what caused it.
+          </p>
+          <div
+            v-for="(pair, index) in form.metadata"
+            :key="index"
+            class="flex items-end gap-4"
+          >
+            <UFormField
+              label="Key"
+              class="flex-1"
+            >
+              <UInput
+                v-model="pair.key"
+                placeholder="e.g. source"
+                class="w-full"
+              />
+            </UFormField>
+            <UFormField
+              label="Value"
+              class="flex-1"
+            >
+              <UInput
+                v-model="pair.value"
+                placeholder="e.g. manual-correction"
+                class="w-full"
+              />
+            </UFormField>
+            <UButton
+              color="error"
+              variant="soft"
+              icon="i-lucide-x"
+              @click="removeMetadata(index)"
+            />
+          </div>
+          <UButton
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-plus"
+            @click="addMetadata"
+          >
+            Add Metadata
+          </UButton>
+        </div>
+
+        <div
+          v-if="reasons.length > 0"
+          class="p-4 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40"
+        >
+          <p class="text-sm font-medium text-red-600 dark:text-red-400 mb-2">
+            Before this entry can be recorded:
+          </p>
+          <ul class="list-disc list-inside text-sm text-red-600 dark:text-red-400 space-y-1">
+            <li
+              v-for="reason in reasons"
+              :key="reason"
+            >
+              {{ reason }}
+            </li>
+          </ul>
         </div>
 
         <div class="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-800">
@@ -152,7 +240,7 @@
             color="primary"
             size="lg"
             :loading="submitting"
-            :disabled="balanceSum !== 0 || form.note.trim() === ''"
+            :disabled="reasons.length > 0"
           >
             Commit Transaction
           </UButton>
@@ -163,38 +251,49 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import type { PostingRow, TransactionFormValues } from '~/utils/transactionForm'
 
 const { fetchApi } = useLedgerApi()
 const toast = useToast()
 const router = useRouter()
 
-const getDefaultPosting = () => ({
+const getDefaultPosting = (): PostingRow => ({
   type: 'ACCOUNT_TYPE_ASSETS',
-  user: '*',
+  user: '',
   name: '',
-  amount: 0
+  amount: 0,
+  currency: 'USD'
 })
 
-const form = ref({
+const form = ref<TransactionFormValues>({
   note: '',
   date: '',
-  currency: 'USD',
+  idempotencyKey: '',
   postings: [
-    { type: 'ACCOUNT_TYPE_ASSETS', user: '*', name: '', amount: 0 },
-    { type: 'ACCOUNT_TYPE_EXPENSES', user: '*', name: '', amount: 0 }
-  ]
+    getDefaultPosting(),
+    { ...getDefaultPosting(), type: 'ACCOUNT_TYPE_EXPENSES' }
+  ],
+  metadata: []
 })
 
 const submitting = ref(false)
 
-const balanceSum = computed(() => {
-  let sum = 0
-  for (const p of form.value.postings) {
-    sum += (p.amount || 0)
-  }
-  return Number(sum.toFixed(2)) // Avoid floating point inaccuracies
+// The running sum is kept in whole nanos, the same integers the postings are
+// sent as, so what the operator watches reach zero is what the ledger checks.
+const sumNanos = computed(() => {
+  return form.value.postings.reduce((total, posting) => total + amountToNanos(posting.amount), 0)
 })
+
+const reasons = computed(() => validateTransactionForm(form.value))
+
+const generateIdempotencyKey = () => {
+  form.value.idempotencyKey = crypto.randomUUID()
+}
+
+// Generated on the client only: a key generated during SSR would not match the
+// one the browser generates on hydration.
+onMounted(() => generateIdempotencyKey())
 
 const addPosting = () => {
   form.value.postings.push(getDefaultPosting())
@@ -206,44 +305,33 @@ const removePosting = (idx: number) => {
   }
 }
 
+const addMetadata = () => {
+  form.value.metadata.push({ key: '', value: '' })
+}
+
+const removeMetadata = (idx: number) => {
+  form.value.metadata.splice(idx, 1)
+}
+
 const submitTransaction = async () => {
-  // Client side validation
-  if (isNaN(balanceSum.value) || balanceSum.value !== 0) {
-    toast.add({ title: 'Invalid Postings', description: 'Double-entry requires the sum of all amounts (per currency) to equal zero.', color: 'error' })
+  // The local checks are a convenience; the ledger stays the authority.
+  if (reasons.value.length > 0) {
     return
   }
 
   submitting.value = true
   try {
-    const payload = {
-      idempotency_key: crypto.randomUUID(),
-      note: form.value.note,
-      date: form.value.date ? new Date(form.value.date).toISOString() : new Date().toISOString(),
-      postings: form.value.postings.map(p => ({
-        account: {
-          type: p.type,
-          name: p.name,
-          user: p.user || '*' // Allow all user or generic
-        },
-        amount: {
-          currencyCode: form.value.currency,
-          units: Math.trunc(p.amount || 0),
-          nanos: Math.round(((p.amount || 0) - Math.trunc(p.amount || 0)) * 1e9)
-        }
-      }))
-    }
-
     await fetchApi('/transactions', {
       method: 'POST',
-      body: payload
+      body: toRecordTransactionRequest(form.value)
     })
 
     toast.add({ title: 'Success', description: 'Transaction successfully recorded.', icon: 'i-lucide-circle-check' })
     router.push('/transactions')
   } catch (err: any) {
     toast.add({
-      title: 'Server Error',
-      description: err.response?._data?.message || err.message || 'An unknown error occurred.',
+      title: 'Transaction Refused',
+      description: describeLedgerError(err),
       color: 'error'
     })
   } finally {
