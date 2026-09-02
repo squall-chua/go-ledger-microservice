@@ -3,10 +3,10 @@
     <div class="flex justify-between items-center mb-6">
       <div>
         <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-          Transaction Register
+          Transactions
         </h1>
         <p class="text-gray-500 mt-1">
-          Chronological history of all ledger entries.
+          Every transaction recorded in the book, newest first.
         </p>
       </div>
       <div class="flex gap-3">
