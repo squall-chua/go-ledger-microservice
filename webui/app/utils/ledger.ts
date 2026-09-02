@@ -1,23 +1,4 @@
-import type { Account, Money } from '../types/ledger'
-import { formatAccountType } from './constants'
-
-/**
- * The three parts of an Account, laid out by the caller. There is deliberately
- * no joined string: ':' is a literal character in a name, not a separator
- * (docs/adr/0002-flat-account-names.md), so a joined form cannot be split back.
- * An empty user or name stays empty — '*' is a real value, not a wildcard.
- */
-export interface RenderedAccount {
-  type: string
-  user: string
-  name: string
-}
-
-export const renderAccount = (account?: Account | null): RenderedAccount => ({
-  type: formatAccountType(account?.type ?? ''),
-  user: account?.user ?? '',
-  name: account?.name ?? ''
-})
+import type { Money } from '../types/ledger'
 
 /**
  * The decimal value of a Money: units + nanos / 1e9, exactly as
