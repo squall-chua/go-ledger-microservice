@@ -8,7 +8,7 @@
         v-model="selectedCurrency"
         :items="CURRENCIES"
         class="w-32"
-        @update:model-value="fetchData"
+        @update:model-value="refresh"
       />
     </div>
 
@@ -23,29 +23,12 @@
       />
     </div>
 
-    <div
+    <LedgerError
       v-else-if="error"
-      class="bg-red-50 dark:bg-red-900/20 p-6 rounded-xl border border-red-200 dark:border-red-800 text-center"
-    >
-      <UIcon
-        name="i-lucide-triangle-alert"
-        class="text-4xl text-red-500 mb-2"
-      />
-      <h3 class="text-lg font-medium text-red-800 dark:text-red-400">
-        Failed to load overview
-      </h3>
-      <p class="text-red-600 dark:text-red-300 mt-1">
-        {{ error.message || 'Please check your connection and authentication.' }}
-      </p>
-      <UButton
-        color="error"
-        variant="soft"
-        class="mt-4"
-        @click="fetchData"
-      >
-        Retry
-      </UButton>
-    </div>
+      :error="error"
+      title="Failed to load overview"
+      @retry="refresh"
+    />
 
     <div
       v-else
@@ -223,81 +206,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref } from 'vue'
 import type { AccountBalance, ListAccountBalancesResponse } from '~/types/ledger'
-
-const { fetchApi } = useLedgerApi()
-const loading = ref(true)
-const error = ref<any>(null)
-const balances = ref<AccountBalance[]>([])
 
 const selectedCurrency = ref('USD')
 
-const totals = ref({
-  assets: 0,
-  revenue: 0,
-  expenses: 0
+const { rows: balances, loading, error, refresh } = useLedgerQuery<ListAccountBalancesResponse, AccountBalance>({
+  key: 'overview',
+  path: '/accounts/balance',
+  body: () => toListAccountBalancesRequest({
+    type: 'ALL',
+    currency: selectedCurrency.value,
+    user: '',
+    name: ''
+  }),
+  rows: response => response.balances
+})
+
+const totals = computed(() => {
+  let assets = 0, revenue = 0, expenses = 0
+  for (const balance of balances.value) {
+    const totalAmount = moneyToNumber(balance.balance)
+
+    switch (balance.account?.type) {
+      case 'ACCOUNT_TYPE_ASSETS':
+        assets += totalAmount
+        break
+      case 'ACCOUNT_TYPE_INCOMES':
+        revenue += totalAmount
+        break
+      case 'ACCOUNT_TYPE_EXPENSES':
+        expenses += totalAmount
+        break
+    }
+  }
+  return { assets, revenue, expenses }
 })
 
 const formatCurrency = (amount: number, currency: string = 'USD') => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
 }
-
-// The currency select fetches on its own, so two quick changes leave two
-// requests in flight. Only the newest one may touch the tiles and the table.
-let latestRequest = 0
-
-const fetchData = async () => {
-  const request = ++latestRequest
-  loading.value = true
-  error.value = null
-  try {
-    const data = await fetchApi<ListAccountBalancesResponse>('/accounts/balance', {
-      method: 'POST',
-      body: toListAccountBalancesRequest({
-        type: 'ALL',
-        currency: selectedCurrency.value,
-        user: '',
-        name: ''
-      })
-    })
-
-    if (request !== latestRequest) {
-      return
-    }
-
-    let a = 0, r = 0, e = 0
-    balances.value = data.balances || []
-    for (const balance of balances.value) {
-      const totalAmount = moneyToNumber(balance.balance)
-
-      switch (balance.account?.type) {
-        case 'ACCOUNT_TYPE_ASSETS':
-          a += totalAmount
-          break
-        case 'ACCOUNT_TYPE_INCOMES':
-          r += totalAmount
-          break
-        case 'ACCOUNT_TYPE_EXPENSES':
-          e += totalAmount
-          break
-      }
-    }
-
-    totals.value = { assets: a, revenue: r, expenses: e }
-  } catch (err: any) {
-    if (request !== latestRequest) {
-      return
-    }
-    error.value = err
-  } finally {
-    if (request === latestRequest) {
-      loading.value = false
-    }
-  }
-}
-
-onMounted(() => {
-  fetchData()
-})
 </script>
