@@ -22,10 +22,11 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Scopes a caller's token must carry to reach the method. Read from the
+// space-delimited `scope` claim. See docs/adr/0003-trusted-service-callers-only.md.
 type AuthRule struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	RequiredScopes []string               `protobuf:"bytes,1,rep,name=required_scopes,json=requiredScopes,proto3" json:"required_scopes,omitempty"`
-	RequiredRoles  []string               `protobuf:"bytes,2,rep,name=required_roles,json=requiredRoles,proto3" json:"required_roles,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -67,13 +68,6 @@ func (x *AuthRule) GetRequiredScopes() []string {
 	return nil
 }
 
-func (x *AuthRule) GetRequiredRoles() []string {
-	if x != nil {
-		return x.RequiredRoles
-	}
-	return nil
-}
-
 var file_api_proto_v1_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -95,10 +89,9 @@ var File_api_proto_v1_options_proto protoreflect.FileDescriptor
 
 const file_api_proto_v1_options_proto_rawDesc = "" +
 	"\n" +
-	"\x1aapi/proto/v1/options.proto\x12\aauth.v1\x1a google/protobuf/descriptor.proto\"Z\n" +
+	"\x1aapi/proto/v1/options.proto\x12\aauth.v1\x1a google/protobuf/descriptor.proto\"3\n" +
 	"\bAuthRule\x12'\n" +
-	"\x0frequired_scopes\x18\x01 \x03(\tR\x0erequiredScopes\x12%\n" +
-	"\x0erequired_roles\x18\x02 \x03(\tR\rrequiredRoles:G\n" +
+	"\x0frequired_scopes\x18\x01 \x03(\tR\x0erequiredScopes:G\n" +
 	"\x04rule\x12\x1e.google.protobuf.MethodOptions\x18І\x03 \x01(\v2\x11.auth.v1.AuthRuleR\x04ruleB9Z7github.com/squall-chua/go-ledger-microservice/api/v1;v1b\x06proto3"
 
 var (

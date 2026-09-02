@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -19,10 +20,12 @@ type TokenValidator interface {
 	ValidateToken(ctx context.Context, token string) (*TokenInfo, error)
 }
 
+// TokenInfo is everything the ledger takes from a caller's token. The caller is
+// a service, not an end user, so the only question asked of the token is what
+// the caller is allowed to do.
+// See docs/adr/0003-trusted-service-callers-only.md.
 type TokenInfo struct {
-	UserID string
 	Scopes []string
-	Roles  []string
 }
 
 type contextKey string
@@ -63,7 +66,7 @@ func AuthInterceptor(validator TokenValidator) grpc.UnaryServerInterceptor {
 		ext := proto.GetExtension(methodDesc.Options(), pb.E_Rule)
 		rule, ok := ext.(*pb.AuthRule)
 
-		if !ok || rule == nil || (len(rule.RequiredScopes) == 0 && len(rule.RequiredRoles) == 0) {
+		if !ok || rule == nil || len(rule.RequiredScopes) == 0 {
 			return handler(ctx, req)
 		}
 
@@ -77,42 +80,17 @@ func AuthInterceptor(validator TokenValidator) grpc.UnaryServerInterceptor {
 			return nil, status.Errorf(codes.Unauthenticated, "token validation failed")
 		}
 
-		// Validate Scopes
-		if len(rule.RequiredScopes) > 0 {
-			hasScope := false
-			for _, required := range rule.RequiredScopes {
-				for _, provided := range tokenInfo.Scopes {
-					if provided == required {
-						hasScope = true
-						break
-					}
-				}
-				if hasScope {
-					break
-				}
-			}
-			if !hasScope {
-				return nil, status.Errorf(codes.PermissionDenied, "missing required scope")
+		// The token must carry one of the scopes the method declares. Scopes do
+		// not imply one another: a caller needing both is issued both.
+		allowed := false
+		for _, required := range rule.RequiredScopes {
+			if slices.Contains(tokenInfo.Scopes, required) {
+				allowed = true
+				break
 			}
 		}
-
-		// Validate Roles
-		if len(rule.RequiredRoles) > 0 {
-			hasRole := false
-			for _, required := range rule.RequiredRoles {
-				for _, provided := range tokenInfo.Roles {
-					if provided == required {
-						hasRole = true
-						break
-					}
-				}
-				if hasRole {
-					break
-				}
-			}
-			if !hasRole {
-				return nil, status.Errorf(codes.PermissionDenied, "missing required role")
-			}
+		if !allowed {
+			return nil, status.Errorf(codes.PermissionDenied, "missing required scope %v", rule.RequiredScopes)
 		}
 
 		ctx = ContextWithTokenInfo(ctx, tokenInfo)

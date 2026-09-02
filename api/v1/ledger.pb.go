@@ -1292,12 +1292,16 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\x18ACCOUNT_TYPE_LIABILITIES\x10\x02\x12\x19\n" +
 	"\x15ACCOUNT_TYPE_EQUITIES\x10\x03\x12\x18\n" +
 	"\x14ACCOUNT_TYPE_INCOMES\x10\x04\x12\x19\n" +
-	"\x15ACCOUNT_TYPE_EXPENSES\x10\x052\xa8\x04\n" +
-	"\rLedgerService\x12\x85\x01\n" +
-	"\x11RecordTransaction\x12\x1c.v1.RecordTransactionRequest\x1a\x1d.v1.RecordTransactionResponse\"3\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/v1/ledger/transactions\x12\x8f\x01\n" +
-	"\x13ListAccountBalances\x12\x1e.v1.ListAccountBalancesRequest\x1a\x1f.v1.ListAccountBalancesResponse\"7\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/ledger/accounts/balance\x12\x82\x01\n" +
-	"\x10ListTransactions\x12\x1b.v1.ListTransactionsRequest\x1a\x1c.v1.ListTransactionsResponse\"3\x82\xb5\x18\a\x12\x05admin\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/v1/ledger/transactions/query\x12x\n" +
-	"\fListPostings\x12\x17.v1.ListPostingsRequest\x1a\x18.v1.ListPostingsResponse\"5\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02\x1e:\x01*\"\x19/v1/ledger/postings/queryB6Z4github.com/squall-chua/go-ledger-microservice/api/v1b\x06proto3"
+	"\x15ACCOUNT_TYPE_EXPENSES\x10\x052\xaf\x04\n" +
+	"\rLedgerService\x12\x86\x01\n" +
+	"\x11RecordTransaction\x12\x1c.v1.RecordTransactionRequest\x1a\x1d.v1.RecordTransactionResponse\"4\x82\xb5\x18\x0e\n" +
+	"\fledger:write\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/v1/ledger/transactions\x12\x8f\x01\n" +
+	"\x13ListAccountBalances\x12\x1e.v1.ListAccountBalancesRequest\x1a\x1f.v1.ListAccountBalancesResponse\"7\x82\xb5\x18\r\n" +
+	"\vledger:read\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/ledger/accounts/balance\x12\x88\x01\n" +
+	"\x10ListTransactions\x12\x1b.v1.ListTransactionsRequest\x1a\x1c.v1.ListTransactionsResponse\"9\x82\xb5\x18\r\n" +
+	"\vledger:read\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/v1/ledger/transactions/query\x12x\n" +
+	"\fListPostings\x12\x17.v1.ListPostingsRequest\x1a\x18.v1.ListPostingsResponse\"5\x82\xb5\x18\r\n" +
+	"\vledger:read\x82\xd3\xe4\x93\x02\x1e:\x01*\"\x19/v1/ledger/postings/queryB6Z4github.com/squall-chua/go-ledger-microservice/api/v1b\x06proto3"
 
 var (
 	file_api_proto_v1_ledger_proto_rawDescOnce sync.Once

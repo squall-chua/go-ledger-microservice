@@ -165,21 +165,25 @@ func newHarness(t *testing.T) *harness {
 	return &harness{
 		t:      t,
 		client: pb.NewLedgerServiceClient(conn),
-		ctx:    callerContext(t, t.Context()),
+		ctx:    callerContext(t, t.Context(), "ledger:read", "ledger:write"),
 	}
 }
 
-// callerContext carries a service token good for the whole book.
-func callerContext(t *testing.T, ctx context.Context) context.Context {
+// callerContext carries a service token bearing the given scopes. The book has
+// no tenant and no end user, so a scope is the whole of what a caller is.
+func callerContext(t *testing.T, ctx context.Context, scopes ...string) context.Context {
 	t.Helper()
 
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"scope": "ledger:read ledger:write",
-		"roles": []string{"admin"},
+		"scope": strings.Join(scopes, " "),
 		"exp":   time.Now().Add(time.Hour).Unix(),
 	}).SignedString([]byte(testJWTSecret))
 	require.NoError(t, err)
 
+	return bearerContext(ctx, token)
+}
+
+func bearerContext(ctx context.Context, token string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "bearer "+token)
 }
 

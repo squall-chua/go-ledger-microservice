@@ -120,11 +120,12 @@ go run ./cmd/server/main.go --port 8080 --db-type sqlite --sql-dsn ledger.db
 The API endpoints are secured by JWT authentication. For local testing, you can manually generate a JWT token at [https://jwt.io/](https://jwt.io/).
 
 1. Go to **jwt.io** and ensure the Algorithm is set to `HS256`.
-2. Set the Payload (Data) to include the required roles:
+2. Set the Payload (Data) to include the scopes the caller needs, space-delimited
+   in the standard `scope` claim — `ledger:write` to record a transaction,
+   `ledger:read` for the queries:
    ```json
    {
-     "sub": "test-user",
-     "roles": ["admin", "user"]
+     "scope": "ledger:read ledger:write"
    }
    ```
 3. Set the Verify Signature secret to the server's default symmetric key: `super-secret-key`.

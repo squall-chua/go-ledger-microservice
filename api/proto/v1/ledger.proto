@@ -148,7 +148,7 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin", "user"]
+      required_scopes: ["ledger:write"]
     };
   }
 
@@ -158,7 +158,7 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin", "user"]
+      required_scopes: ["ledger:read"]
     };
   }
 
@@ -168,7 +168,7 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin"]
+      required_scopes: ["ledger:read"]
     };
   }
 
@@ -178,7 +178,7 @@ service LedgerService {
       body: "*"
     };
     option (auth.v1.rule) = {
-      required_roles: ["admin", "user"]
+      required_scopes: ["ledger:read"]
     };
   }
 }

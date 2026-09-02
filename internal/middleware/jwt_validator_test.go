@@ -22,22 +22,35 @@ func TestJwtTokenValidator_ValidateToken(t *testing.T) {
 		wantInfo   *TokenInfo
 	}{
 		{
-			name: "Valid Token with Scopes and Roles",
+			name: "Scope claim is split on spaces",
 			claims: jwt.MapClaims{
-				"scope": "read:items write:items",
-				"roles": []interface{}{"admin", "user"},
+				"scope": "ledger:read ledger:write",
 				"exp":   time.Now().Add(time.Hour).Unix(),
 			},
 			signSecret: []byte(secret),
 			method:     jwt.SigningMethodHS256,
 			wantErr:    false,
 			wantInfo: &TokenInfo{
-				Scopes: []string{"read:items", "write:items"},
-				Roles:  []string{"admin", "user"},
+				Scopes: []string{"ledger:read", "ledger:write"},
 			},
 		},
 		{
-			name: "Valid Token without scopes or roles",
+			name: "Roles and subject claims are ignored",
+			claims: jwt.MapClaims{
+				"scope": "ledger:read",
+				"roles": []interface{}{"admin", "user"},
+				"sub":   "someone",
+				"exp":   time.Now().Add(time.Hour).Unix(),
+			},
+			signSecret: []byte(secret),
+			method:     jwt.SigningMethodHS256,
+			wantErr:    false,
+			wantInfo: &TokenInfo{
+				Scopes: []string{"ledger:read"},
+			},
+		},
+		{
+			name: "Valid Token without scopes",
 			claims: jwt.MapClaims{
 				"exp": time.Now().Add(time.Hour).Unix(),
 			},
@@ -46,7 +59,6 @@ func TestJwtTokenValidator_ValidateToken(t *testing.T) {
 			wantErr:    false,
 			wantInfo: &TokenInfo{
 				Scopes: nil,
-				Roles:  nil,
 			},
 		},
 		{
