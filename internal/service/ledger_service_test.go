@@ -308,6 +308,56 @@ func TestListTransactionsPageSizeDefaultsToTen(t *testing.T) {
 	assert.Len(t, h.transactions(&pb.ListTransactionsRequest{PageSize: 1000}).Transactions, 11)
 }
 
+func TestListTransactionsFiltersByExactMetadataPairs(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(tagged(onDay(1, "key-1", "note 1", opening, cash, usd(1, 0)),
+		map[string]string{"order": "42", "source": "checkout"}))
+	h.mustRecord(tagged(onDay(2, "key-2", "note 2", opening, cash, usd(2, 0)),
+		map[string]string{"order": "43", "source": "checkout"}))
+	h.mustRecord(onDay(3, "key-3", "note 3", opening, cash, usd(3, 0)))
+
+	byMetadata := func(pairs map[string]string) *pb.ListTransactionsResponse {
+		return h.transactions(&pb.ListTransactionsRequest{Filter: &pb.TransactionFilter{Metadata: pairs}})
+	}
+
+	matched := byMetadata(map[string]string{"source": "checkout"})
+	assert.EqualValues(t, 2, matched.TotalCount)
+	assert.Equal(t, []string{"note 2", "note 1"}, notesOf(matched.Transactions))
+	assert.Equal(t, map[string]string{"order": "43", "source": "checkout"}, matched.Transactions[0].Metadata,
+		"the pairs come back out of storage as they went in")
+
+	assert.Equal(t, []string{"note 1"}, notesOf(byMetadata(map[string]string{"order": "42"}).Transactions))
+	assert.Empty(t, byMetadata(map[string]string{"order": "4"}).Transactions,
+		"a value is matched whole, never as a prefix")
+	assert.Empty(t, byMetadata(map[string]string{"Order": "42"}).Transactions, "a key is matched exactly")
+
+	// Several pairs are ANDed: every one of them has to match.
+	assert.Equal(t, []string{"note 1"},
+		notesOf(byMetadata(map[string]string{"order": "42", "source": "checkout"}).Transactions))
+	assert.Empty(t, byMetadata(map[string]string{"order": "42", "source": "refund"}).Transactions,
+		"one pair matching is not enough")
+
+	// No pairs at all is not filtered on, and the transaction recorded without
+	// metadata reads back as an empty map.
+	all := h.transactions(&pb.ListTransactionsRequest{Filter: &pb.TransactionFilter{}})
+	assert.EqualValues(t, 3, all.TotalCount)
+	assert.Empty(t, all.Transactions[0].Metadata)
+}
+
+func TestAMetadataFilterWithAnEmptyKeyIsRefused(t *testing.T) {
+	h := newHarness(t)
+
+	_, err := h.client.ListTransactions(h.ctx, &pb.ListTransactionsRequest{
+		Filter: &pb.TransactionFilter{Metadata: map[string]string{"": "42"}},
+	})
+	requireCode(t, err, codes.InvalidArgument)
+
+	_, err = h.client.ListPostings(h.ctx, &pb.ListPostingsRequest{
+		Filter: &pb.PostingFilter{Metadata: map[string]string{"": "42"}},
+	})
+	requireCode(t, err, codes.InvalidArgument)
+}
+
 func TestListPostingsReturnsOneAccountsRegisterWithRunningBalances(t *testing.T) {
 	h := newHarness(t)
 	h.mustRecord(onDay(1, "key-1", "opening deposit", opening, cash, usd(100, 0)))
@@ -366,6 +416,28 @@ func TestListPostingsFiltersTheRegisterExactly(t *testing.T) {
 	}), "two transactions of two postings each")
 }
 
+func TestListPostingsFiltersTheRegisterByItsParentTransactionsMetadata(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(tagged(onDay(1, "key-1", "rent", cash, rent, usd(30, 0)),
+		map[string]string{"source": "checkout"}))
+	h.mustRecord(onDay(2, "key-2", "groceries", cash, rent, usd(5, 0)))
+
+	// A posting has no metadata of its own, so the pairs are matched against
+	// the transaction it belongs to.
+	register := h.register(&pb.ListPostingsRequest{Filter: &pb.PostingFilter{
+		Account:  exactly(cash),
+		Metadata: map[string]string{"source": "checkout"},
+	}})
+	assert.EqualValues(t, 1, register.TotalCount)
+	require.Len(t, register.Postings, 1)
+	assertMoney(t, usd(-30, 0), register.Postings[0].Amount)
+
+	assert.EqualValues(t, 2, h.register(&pb.ListPostingsRequest{
+		Filter: &pb.PostingFilter{Account: exactly(cash)}}).TotalCount, "unfiltered, both legs are there")
+	assert.Zero(t, h.register(&pb.ListPostingsRequest{Filter: &pb.PostingFilter{
+		Metadata: map[string]string{"source": "refund"}}}).TotalCount)
+}
+
 func TestAnEmptyUserIsFilteredForExactly(t *testing.T) {
 	h := newHarness(t)
 	h.mustRecord(onDay(1, "key-1", "opening deposit", opening, cash, usd(100, 0)))
@@ -405,6 +477,12 @@ func day(number int) time.Time {
 func onDay(number int, key, note string, from, to *pb.Account, amount *money.Money) *pb.RecordTransactionRequest {
 	request := transfer(key, note, from, to, amount)
 	request.Date = timestamppb.New(day(number))
+	return request
+}
+
+// tagged attaches metadata to a transaction about to be recorded.
+func tagged(request *pb.RecordTransactionRequest, metadata map[string]string) *pb.RecordTransactionRequest {
+	request.Metadata = metadata
 	return request
 }
 

@@ -156,10 +156,14 @@ func (s *ledgerService) ListAccountBalances(ctx context.Context, req *pb.ListAcc
 }
 
 func (s *ledgerService) ListTransactions(ctx context.Context, req *pb.ListTransactionsRequest) (*pb.ListTransactionsResponse, error) {
+	if err := checkMetadataFilter(req.Filter.GetMetadata()); err != nil {
+		return nil, err
+	}
 	filter := repository.TransactionFilter{
 		IdempotencyKey: req.Filter.GetIdempotencyKey(),
 		StartDate:      dateOrNil(req.Filter.GetStartDate()),
 		EndDate:        dateOrNil(req.Filter.GetEndDate()),
+		Metadata:       req.Filter.GetMetadata(),
 	}
 
 	transactions, total, err := s.repo.ListTransactions(ctx, filter, pageOf(req.PageSize, req.PageNumber, req.OrderByAscending))
@@ -171,6 +175,9 @@ func (s *ledgerService) ListTransactions(ctx context.Context, req *pb.ListTransa
 }
 
 func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRequest) (*pb.ListPostingsResponse, error) {
+	if err := checkMetadataFilter(req.Filter.GetMetadata()); err != nil {
+		return nil, err
+	}
 	accountType, user, name := accountFilter(req.Filter.GetAccount())
 	filter := repository.RegisterFilter{
 		Type:         accountType,
@@ -179,6 +186,7 @@ func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRe
 		CurrencyCode: strings.ToUpper(req.Filter.GetCurrencyCode()),
 		StartDate:    dateOrNil(req.Filter.GetStartDate()),
 		EndDate:      dateOrNil(req.Filter.GetEndDate()),
+		Metadata:     req.Filter.GetMetadata(),
 	}
 
 	postings, total, err := s.repo.ListRegister(ctx, filter, pageOf(req.PageSize, req.PageNumber, req.OrderByAscending))
@@ -187,6 +195,17 @@ func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRe
 	}
 
 	return &pb.ListPostingsResponse{Postings: postings, TotalCount: total}, nil
+}
+
+// checkMetadataFilter refuses a malformed filter pair. A pair is malformed when
+// its key is empty: there is nothing to match on, so the caller is told rather
+// than handed a listing that quietly filtered on nothing useful. An empty value
+// is well formed — it asks for a key stored with an empty value.
+func checkMetadataFilter(pairs map[string]string) error {
+	if _, malformed := pairs[""]; malformed {
+		return status.Error(codes.InvalidArgument, "a metadata filter pair needs a non-empty key")
+	}
+	return nil
 }
 
 // accountFilter unpacks an account filter. The user and the name keep their

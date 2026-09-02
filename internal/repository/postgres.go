@@ -91,6 +91,9 @@ type TransactionFilter struct {
 	IdempotencyKey string
 	StartDate      *time.Time
 	EndDate        *time.Time
+	// Metadata pairs the transaction has to carry, all of them, matched
+	// exactly. A transaction carrying more pairs still matches.
+	Metadata map[string]string
 }
 
 // RegisterFilter narrows a register read. It matches account fields exactly,
@@ -102,6 +105,9 @@ type RegisterFilter struct {
 	CurrencyCode string
 	StartDate    *time.Time
 	EndDate      *time.Time
+	// Metadata is matched against the parent transaction's metadata — a posting
+	// has none of its own.
+	Metadata map[string]string
 }
 
 // Page is one bounded window of a listing, newest first unless asked otherwise.
@@ -348,6 +354,7 @@ func (r *Repository) ListTransactions(ctx context.Context, filter TransactionFil
 	var where filterBuilder
 	where.equalIfSet("idempotency_key", filter.IdempotencyKey)
 	where.dateRange("date", filter.StartDate, filter.EndDate)
+	where.contains("metadata", filter.Metadata)
 
 	var total int64
 	if err := r.db.QueryRowContext(ctx,
@@ -421,6 +428,9 @@ func (r *Repository) ListRegister(ctx context.Context, filter RegisterFilter, pa
 	var where filterBuilder
 	where.account(filter.Type, filter.User, filter.Name, filter.CurrencyCode)
 	where.dateRange("date", filter.StartDate, filter.EndDate)
+	// A posting carries no metadata of its own, so the pairs are matched
+	// against the transaction it belongs to.
+	where.contains("(SELECT metadata FROM transactions WHERE id = postings.transaction_id)", filter.Metadata)
 
 	var total int64
 	if err := r.db.QueryRowContext(ctx,
@@ -527,6 +537,17 @@ func (b *filterBuilder) account(accountType string, user, name *string, currency
 	b.equalIfGiven("account_user", user)
 	b.equalIfGiven("account_name", name)
 	b.equalIfSet("currency_code", currencyCode)
+}
+
+// contains filters on JSONB containment: the expression has to hold every pair
+// given, which is how several metadata pairs are ANDed. No pairs at all is not
+// filtered on.
+func (b *filterBuilder) contains(expression string, pairs map[string]string) {
+	if len(pairs) == 0 {
+		return
+	}
+	encoded, _ := json.Marshal(pairs) // a map of strings always encodes
+	b.conditions = append(b.conditions, expression+" @> "+b.bind(string(encoded))+"::jsonb")
 }
 
 // dateRange is half-open: the start is included, the end is excluded.

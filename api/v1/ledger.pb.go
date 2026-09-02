@@ -11,7 +11,6 @@ import (
 	money "google.golang.org/genproto/googleapis/type/money"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	anypb "google.golang.org/protobuf/types/known/anypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -81,70 +80,6 @@ func (x AccountType) Number() protoreflect.EnumNumber {
 // Deprecated: Use AccountType.Descriptor instead.
 func (AccountType) EnumDescriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{0}
-}
-
-type MetadataFilter_Operator int32
-
-const (
-	MetadataFilter_OPERATOR_UNSPECIFIED           MetadataFilter_Operator = 0
-	MetadataFilter_OPERATOR_EQUAL                 MetadataFilter_Operator = 1
-	MetadataFilter_OPERATOR_NOT_EQUAL             MetadataFilter_Operator = 2
-	MetadataFilter_OPERATOR_GREATER_THAN          MetadataFilter_Operator = 3
-	MetadataFilter_OPERATOR_LESS_THAN             MetadataFilter_Operator = 4
-	MetadataFilter_OPERATOR_GREATER_THAN_OR_EQUAL MetadataFilter_Operator = 5
-	MetadataFilter_OPERATOR_LESS_THAN_OR_EQUAL    MetadataFilter_Operator = 6
-	MetadataFilter_OPERATOR_PARTIAL_MATCH         MetadataFilter_Operator = 7 // e.g., String contains or regex
-)
-
-// Enum value maps for MetadataFilter_Operator.
-var (
-	MetadataFilter_Operator_name = map[int32]string{
-		0: "OPERATOR_UNSPECIFIED",
-		1: "OPERATOR_EQUAL",
-		2: "OPERATOR_NOT_EQUAL",
-		3: "OPERATOR_GREATER_THAN",
-		4: "OPERATOR_LESS_THAN",
-		5: "OPERATOR_GREATER_THAN_OR_EQUAL",
-		6: "OPERATOR_LESS_THAN_OR_EQUAL",
-		7: "OPERATOR_PARTIAL_MATCH",
-	}
-	MetadataFilter_Operator_value = map[string]int32{
-		"OPERATOR_UNSPECIFIED":           0,
-		"OPERATOR_EQUAL":                 1,
-		"OPERATOR_NOT_EQUAL":             2,
-		"OPERATOR_GREATER_THAN":          3,
-		"OPERATOR_LESS_THAN":             4,
-		"OPERATOR_GREATER_THAN_OR_EQUAL": 5,
-		"OPERATOR_LESS_THAN_OR_EQUAL":    6,
-		"OPERATOR_PARTIAL_MATCH":         7,
-	}
-)
-
-func (x MetadataFilter_Operator) Enum() *MetadataFilter_Operator {
-	p := new(MetadataFilter_Operator)
-	*p = x
-	return p
-}
-
-func (x MetadataFilter_Operator) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (MetadataFilter_Operator) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_proto_v1_ledger_proto_enumTypes[1].Descriptor()
-}
-
-func (MetadataFilter_Operator) Type() protoreflect.EnumType {
-	return &file_api_proto_v1_ledger_proto_enumTypes[1]
-}
-
-func (x MetadataFilter_Operator) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use MetadataFilter_Operator.Descriptor instead.
-func (MetadataFilter_Operator) EnumDescriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{9, 0}
 }
 
 // An Account is identified by the exact composite (type, user, name). There is
@@ -735,81 +670,24 @@ func (x *AccountBalance) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-type MetadataFilter struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Key           string                  `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"` // The metadata key to match on
-	Operator      MetadataFilter_Operator `protobuf:"varint,2,opt,name=operator,proto3,enum=v1.MetadataFilter_Operator" json:"operator,omitempty"`
-	Value         *anypb.Any              `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"` // The value to compare against
+// Every filter is optional. The date range is half-open: start_date is
+// included and end_date is excluded, so adjacent periods never double-count.
+type TransactionFilter struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // Exact; matches at most one Transaction.
+	StartDate      *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`                // Transaction date, inclusive.
+	EndDate        *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`                      // Transaction date, exclusive.
+	// Exact metadata pairs the Transaction has to carry. Every pair given has
+	// to match, key and value; a Transaction carrying more is still a match. An
+	// empty key is refused.
+	Metadata      map[string]string `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MetadataFilter) Reset() {
-	*x = MetadataFilter{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MetadataFilter) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MetadataFilter) ProtoMessage() {}
-
-func (x *MetadataFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MetadataFilter.ProtoReflect.Descriptor instead.
-func (*MetadataFilter) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *MetadataFilter) GetKey() string {
-	if x != nil {
-		return x.Key
-	}
-	return ""
-}
-
-func (x *MetadataFilter) GetOperator() MetadataFilter_Operator {
-	if x != nil {
-		return x.Operator
-	}
-	return MetadataFilter_OPERATOR_UNSPECIFIED
-}
-
-func (x *MetadataFilter) GetValue() *anypb.Any {
-	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
-// Every filter is optional. The date range is half-open: start_date is
-// included and end_date is excluded, so adjacent periods never double-count.
-type TransactionFilter struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	IdempotencyKey  string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`    // Exact; matches at most one Transaction.
-	StartDate       *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`                   // Transaction date, inclusive.
-	EndDate         *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`                         // Transaction date, exclusive.
-	MetadataFilters []*MetadataFilter      `protobuf:"bytes,4,rep,name=metadata_filters,json=metadataFilters,proto3" json:"metadata_filters,omitempty"` // Reserved for the metadata rework; not applied yet.
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
 func (x *TransactionFilter) Reset() {
 	*x = TransactionFilter{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[10]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +699,7 @@ func (x *TransactionFilter) String() string {
 func (*TransactionFilter) ProtoMessage() {}
 
 func (x *TransactionFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[10]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +712,7 @@ func (x *TransactionFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransactionFilter.ProtoReflect.Descriptor instead.
 func (*TransactionFilter) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{10}
+	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *TransactionFilter) GetIdempotencyKey() string {
@@ -858,9 +736,9 @@ func (x *TransactionFilter) GetEndDate() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *TransactionFilter) GetMetadataFilters() []*MetadataFilter {
+func (x *TransactionFilter) GetMetadata() map[string]string {
 	if x != nil {
-		return x.MetadataFilters
+		return x.Metadata
 	}
 	return nil
 }
@@ -877,7 +755,7 @@ type ListTransactionsRequest struct {
 
 func (x *ListTransactionsRequest) Reset() {
 	*x = ListTransactionsRequest{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[11]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -889,7 +767,7 @@ func (x *ListTransactionsRequest) String() string {
 func (*ListTransactionsRequest) ProtoMessage() {}
 
 func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[11]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -902,7 +780,7 @@ func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsRequest.ProtoReflect.Descriptor instead.
 func (*ListTransactionsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{11}
+	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListTransactionsRequest) GetFilter() *TransactionFilter {
@@ -943,7 +821,7 @@ type ListTransactionsResponse struct {
 
 func (x *ListTransactionsResponse) Reset() {
 	*x = ListTransactionsResponse{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[12]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -955,7 +833,7 @@ func (x *ListTransactionsResponse) String() string {
 func (*ListTransactionsResponse) ProtoMessage() {}
 
 func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[12]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -968,7 +846,7 @@ func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsResponse.ProtoReflect.Descriptor instead.
 func (*ListTransactionsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{12}
+	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListTransactionsResponse) GetTransactions() []*Transaction {
@@ -988,18 +866,21 @@ func (x *ListTransactionsResponse) GetTotalCount() int64 {
 // A Register read: one Account's Postings over time. Every filter is optional
 // and the date range is half-open, as on the Transaction listing.
 type PostingFilter struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Account       *AccountFilter         `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
-	CurrencyCode  string                 `protobuf:"bytes,2,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
-	StartDate     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"` // Transaction date, inclusive.
-	EndDate       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`       // Transaction date, exclusive.
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Account      *AccountFilter         `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	CurrencyCode string                 `protobuf:"bytes,2,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
+	StartDate    *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"` // Transaction date, inclusive.
+	EndDate      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`       // Transaction date, exclusive.
+	// Matched against the parent Transaction's metadata — a Posting has none of
+	// its own. Same exact-pair rule as on the Transaction listing.
+	Metadata      map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PostingFilter) Reset() {
 	*x = PostingFilter{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[13]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1011,7 +892,7 @@ func (x *PostingFilter) String() string {
 func (*PostingFilter) ProtoMessage() {}
 
 func (x *PostingFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[13]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1024,7 +905,7 @@ func (x *PostingFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostingFilter.ProtoReflect.Descriptor instead.
 func (*PostingFilter) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{13}
+	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PostingFilter) GetAccount() *AccountFilter {
@@ -1055,6 +936,13 @@ func (x *PostingFilter) GetEndDate() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *PostingFilter) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
 type ListPostingsRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Filter           *PostingFilter         `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
@@ -1067,7 +955,7 @@ type ListPostingsRequest struct {
 
 func (x *ListPostingsRequest) Reset() {
 	*x = ListPostingsRequest{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[14]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1079,7 +967,7 @@ func (x *ListPostingsRequest) String() string {
 func (*ListPostingsRequest) ProtoMessage() {}
 
 func (x *ListPostingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[14]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1092,7 +980,7 @@ func (x *ListPostingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPostingsRequest.ProtoReflect.Descriptor instead.
 func (*ListPostingsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{14}
+	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListPostingsRequest) GetFilter() *PostingFilter {
@@ -1133,7 +1021,7 @@ type ListPostingsResponse struct {
 
 func (x *ListPostingsResponse) Reset() {
 	*x = ListPostingsResponse{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[15]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1145,7 +1033,7 @@ func (x *ListPostingsResponse) String() string {
 func (*ListPostingsResponse) ProtoMessage() {}
 
 func (x *ListPostingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[15]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1158,7 +1046,7 @@ func (x *ListPostingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPostingsResponse.ProtoReflect.Descriptor instead.
 func (*ListPostingsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{15}
+	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListPostingsResponse) GetPostings() []*Posting {
@@ -1185,7 +1073,7 @@ type RecordTransactionRequest_PostingInput struct {
 
 func (x *RecordTransactionRequest_PostingInput) Reset() {
 	*x = RecordTransactionRequest_PostingInput{}
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[18]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1197,7 +1085,7 @@ func (x *RecordTransactionRequest_PostingInput) String() string {
 func (*RecordTransactionRequest_PostingInput) ProtoMessage() {}
 
 func (x *RecordTransactionRequest_PostingInput) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_v1_ledger_proto_msgTypes[18]
+	mi := &file_api_proto_v1_ledger_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1231,7 +1119,7 @@ var File_api_proto_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\n" +
-	"\x19api/proto/v1/ledger.proto\x12\x02v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19google/protobuf/any.proto\x1a\x17google/type/money.proto\x1a\x1aapi/proto/v1/options.proto\"V\n" +
+	"\x19api/proto/v1/ledger.proto\x12\x02v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/type/money.proto\x1a\x1aapi/proto/v1/options.proto\"V\n" +
 	"\aAccount\x12#\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x0f.v1.AccountTypeR\x04type\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x12\n" +
@@ -1286,26 +1174,16 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\aaccount\x18\x01 \x01(\v2\v.v1.AccountR\aaccount\x12,\n" +
 	"\abalance\x18\x02 \x01(\v2\x12.google.type.MoneyR\abalance\x129\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xee\x02\n" +
-	"\x0eMetadataFilter\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x127\n" +
-	"\boperator\x18\x02 \x01(\x0e2\x1b.v1.MetadataFilter.OperatorR\boperator\x12*\n" +
-	"\x05value\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x05value\"\xe4\x01\n" +
-	"\bOperator\x12\x18\n" +
-	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x12\n" +
-	"\x0eOPERATOR_EQUAL\x10\x01\x12\x16\n" +
-	"\x12OPERATOR_NOT_EQUAL\x10\x02\x12\x19\n" +
-	"\x15OPERATOR_GREATER_THAN\x10\x03\x12\x16\n" +
-	"\x12OPERATOR_LESS_THAN\x10\x04\x12\"\n" +
-	"\x1eOPERATOR_GREATER_THAN_OR_EQUAL\x10\x05\x12\x1f\n" +
-	"\x1bOPERATOR_LESS_THAN_OR_EQUAL\x10\x06\x12\x1a\n" +
-	"\x16OPERATOR_PARTIAL_MATCH\x10\a\"\xed\x01\n" +
+	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xac\x02\n" +
 	"\x11TransactionFilter\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x129\n" +
 	"\n" +
 	"start_date\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartDate\x125\n" +
-	"\bend_date\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\aendDate\x12=\n" +
-	"\x10metadata_filters\x18\x04 \x03(\v2\x12.v1.MetadataFilterR\x0fmetadataFilters\"\xb4\x01\n" +
+	"\bend_date\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\aendDate\x12?\n" +
+	"\bmetadata\x18\x04 \x03(\v2#.v1.TransactionFilter.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb4\x01\n" +
 	"\x17ListTransactionsRequest\x12-\n" +
 	"\x06filter\x18\x01 \x01(\v2\x15.v1.TransactionFilterR\x06filter\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1f\n" +
@@ -1315,13 +1193,17 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\x18ListTransactionsResponse\x123\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x0f.v1.TransactionR\ftransactions\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"\xd3\x01\n" +
+	"totalCount\"\xcd\x02\n" +
 	"\rPostingFilter\x12+\n" +
 	"\aaccount\x18\x01 \x01(\v2\x11.v1.AccountFilterR\aaccount\x12#\n" +
 	"\rcurrency_code\x18\x02 \x01(\tR\fcurrencyCode\x129\n" +
 	"\n" +
 	"start_date\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartDate\x125\n" +
-	"\bend_date\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendDate\"\xac\x01\n" +
+	"\bend_date\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendDate\x12;\n" +
+	"\bmetadata\x18\x05 \x03(\v2\x1f.v1.PostingFilter.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xac\x01\n" +
 	"\x13ListPostingsRequest\x12)\n" +
 	"\x06filter\x18\x01 \x01(\v2\x11.v1.PostingFilterR\x06filter\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1f\n" +
@@ -1361,82 +1243,80 @@ func file_api_proto_v1_ledger_proto_rawDescGZIP() []byte {
 	return file_api_proto_v1_ledger_proto_rawDescData
 }
 
-var file_api_proto_v1_ledger_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_api_proto_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_api_proto_v1_ledger_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_api_proto_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_api_proto_v1_ledger_proto_goTypes = []any{
 	(AccountType)(0),                              // 0: v1.AccountType
-	(MetadataFilter_Operator)(0),                  // 1: v1.MetadataFilter.Operator
-	(*Account)(nil),                               // 2: v1.Account
-	(*Posting)(nil),                               // 3: v1.Posting
-	(*Transaction)(nil),                           // 4: v1.Transaction
-	(*RecordTransactionRequest)(nil),              // 5: v1.RecordTransactionRequest
-	(*RecordTransactionResponse)(nil),             // 6: v1.RecordTransactionResponse
-	(*AccountFilter)(nil),                         // 7: v1.AccountFilter
-	(*ListAccountBalancesRequest)(nil),            // 8: v1.ListAccountBalancesRequest
-	(*ListAccountBalancesResponse)(nil),           // 9: v1.ListAccountBalancesResponse
-	(*AccountBalance)(nil),                        // 10: v1.AccountBalance
-	(*MetadataFilter)(nil),                        // 11: v1.MetadataFilter
-	(*TransactionFilter)(nil),                     // 12: v1.TransactionFilter
-	(*ListTransactionsRequest)(nil),               // 13: v1.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil),              // 14: v1.ListTransactionsResponse
-	(*PostingFilter)(nil),                         // 15: v1.PostingFilter
-	(*ListPostingsRequest)(nil),                   // 16: v1.ListPostingsRequest
-	(*ListPostingsResponse)(nil),                  // 17: v1.ListPostingsResponse
-	nil,                                           // 18: v1.Transaction.MetadataEntry
-	nil,                                           // 19: v1.RecordTransactionRequest.MetadataEntry
-	(*RecordTransactionRequest_PostingInput)(nil), // 20: v1.RecordTransactionRequest.PostingInput
-	(*money.Money)(nil),                           // 21: google.type.Money
-	(*timestamppb.Timestamp)(nil),                 // 22: google.protobuf.Timestamp
-	(*anypb.Any)(nil),                             // 23: google.protobuf.Any
+	(*Account)(nil),                               // 1: v1.Account
+	(*Posting)(nil),                               // 2: v1.Posting
+	(*Transaction)(nil),                           // 3: v1.Transaction
+	(*RecordTransactionRequest)(nil),              // 4: v1.RecordTransactionRequest
+	(*RecordTransactionResponse)(nil),             // 5: v1.RecordTransactionResponse
+	(*AccountFilter)(nil),                         // 6: v1.AccountFilter
+	(*ListAccountBalancesRequest)(nil),            // 7: v1.ListAccountBalancesRequest
+	(*ListAccountBalancesResponse)(nil),           // 8: v1.ListAccountBalancesResponse
+	(*AccountBalance)(nil),                        // 9: v1.AccountBalance
+	(*TransactionFilter)(nil),                     // 10: v1.TransactionFilter
+	(*ListTransactionsRequest)(nil),               // 11: v1.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil),              // 12: v1.ListTransactionsResponse
+	(*PostingFilter)(nil),                         // 13: v1.PostingFilter
+	(*ListPostingsRequest)(nil),                   // 14: v1.ListPostingsRequest
+	(*ListPostingsResponse)(nil),                  // 15: v1.ListPostingsResponse
+	nil,                                           // 16: v1.Transaction.MetadataEntry
+	nil,                                           // 17: v1.RecordTransactionRequest.MetadataEntry
+	(*RecordTransactionRequest_PostingInput)(nil), // 18: v1.RecordTransactionRequest.PostingInput
+	nil,                           // 19: v1.TransactionFilter.MetadataEntry
+	nil,                           // 20: v1.PostingFilter.MetadataEntry
+	(*money.Money)(nil),           // 21: google.type.Money
+	(*timestamppb.Timestamp)(nil), // 22: google.protobuf.Timestamp
 }
 var file_api_proto_v1_ledger_proto_depIdxs = []int32{
 	0,  // 0: v1.Account.type:type_name -> v1.AccountType
-	2,  // 1: v1.Posting.account:type_name -> v1.Account
+	1,  // 1: v1.Posting.account:type_name -> v1.Account
 	21, // 2: v1.Posting.amount:type_name -> google.type.Money
 	21, // 3: v1.Posting.balance:type_name -> google.type.Money
 	22, // 4: v1.Posting.created_at:type_name -> google.protobuf.Timestamp
 	22, // 5: v1.Transaction.date:type_name -> google.protobuf.Timestamp
-	18, // 6: v1.Transaction.metadata:type_name -> v1.Transaction.MetadataEntry
-	3,  // 7: v1.Transaction.postings:type_name -> v1.Posting
+	16, // 6: v1.Transaction.metadata:type_name -> v1.Transaction.MetadataEntry
+	2,  // 7: v1.Transaction.postings:type_name -> v1.Posting
 	22, // 8: v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
 	22, // 9: v1.RecordTransactionRequest.date:type_name -> google.protobuf.Timestamp
-	19, // 10: v1.RecordTransactionRequest.metadata:type_name -> v1.RecordTransactionRequest.MetadataEntry
-	20, // 11: v1.RecordTransactionRequest.postings:type_name -> v1.RecordTransactionRequest.PostingInput
-	2,  // 12: v1.RecordTransactionRequest.verify_non_negative_balances:type_name -> v1.Account
-	4,  // 13: v1.RecordTransactionResponse.transaction:type_name -> v1.Transaction
+	17, // 10: v1.RecordTransactionRequest.metadata:type_name -> v1.RecordTransactionRequest.MetadataEntry
+	18, // 11: v1.RecordTransactionRequest.postings:type_name -> v1.RecordTransactionRequest.PostingInput
+	1,  // 12: v1.RecordTransactionRequest.verify_non_negative_balances:type_name -> v1.Account
+	3,  // 13: v1.RecordTransactionResponse.transaction:type_name -> v1.Transaction
 	0,  // 14: v1.AccountFilter.type:type_name -> v1.AccountType
-	7,  // 15: v1.ListAccountBalancesRequest.account:type_name -> v1.AccountFilter
-	10, // 16: v1.ListAccountBalancesResponse.balances:type_name -> v1.AccountBalance
-	2,  // 17: v1.AccountBalance.account:type_name -> v1.Account
+	6,  // 15: v1.ListAccountBalancesRequest.account:type_name -> v1.AccountFilter
+	9,  // 16: v1.ListAccountBalancesResponse.balances:type_name -> v1.AccountBalance
+	1,  // 17: v1.AccountBalance.account:type_name -> v1.Account
 	21, // 18: v1.AccountBalance.balance:type_name -> google.type.Money
 	22, // 19: v1.AccountBalance.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 20: v1.MetadataFilter.operator:type_name -> v1.MetadataFilter.Operator
-	23, // 21: v1.MetadataFilter.value:type_name -> google.protobuf.Any
-	22, // 22: v1.TransactionFilter.start_date:type_name -> google.protobuf.Timestamp
-	22, // 23: v1.TransactionFilter.end_date:type_name -> google.protobuf.Timestamp
-	11, // 24: v1.TransactionFilter.metadata_filters:type_name -> v1.MetadataFilter
-	12, // 25: v1.ListTransactionsRequest.filter:type_name -> v1.TransactionFilter
-	4,  // 26: v1.ListTransactionsResponse.transactions:type_name -> v1.Transaction
-	7,  // 27: v1.PostingFilter.account:type_name -> v1.AccountFilter
-	22, // 28: v1.PostingFilter.start_date:type_name -> google.protobuf.Timestamp
-	22, // 29: v1.PostingFilter.end_date:type_name -> google.protobuf.Timestamp
-	15, // 30: v1.ListPostingsRequest.filter:type_name -> v1.PostingFilter
-	3,  // 31: v1.ListPostingsResponse.postings:type_name -> v1.Posting
-	2,  // 32: v1.RecordTransactionRequest.PostingInput.account:type_name -> v1.Account
-	21, // 33: v1.RecordTransactionRequest.PostingInput.amount:type_name -> google.type.Money
-	5,  // 34: v1.LedgerService.RecordTransaction:input_type -> v1.RecordTransactionRequest
-	8,  // 35: v1.LedgerService.ListAccountBalances:input_type -> v1.ListAccountBalancesRequest
-	13, // 36: v1.LedgerService.ListTransactions:input_type -> v1.ListTransactionsRequest
-	16, // 37: v1.LedgerService.ListPostings:input_type -> v1.ListPostingsRequest
-	6,  // 38: v1.LedgerService.RecordTransaction:output_type -> v1.RecordTransactionResponse
-	9,  // 39: v1.LedgerService.ListAccountBalances:output_type -> v1.ListAccountBalancesResponse
-	14, // 40: v1.LedgerService.ListTransactions:output_type -> v1.ListTransactionsResponse
-	17, // 41: v1.LedgerService.ListPostings:output_type -> v1.ListPostingsResponse
-	38, // [38:42] is the sub-list for method output_type
-	34, // [34:38] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	22, // 20: v1.TransactionFilter.start_date:type_name -> google.protobuf.Timestamp
+	22, // 21: v1.TransactionFilter.end_date:type_name -> google.protobuf.Timestamp
+	19, // 22: v1.TransactionFilter.metadata:type_name -> v1.TransactionFilter.MetadataEntry
+	10, // 23: v1.ListTransactionsRequest.filter:type_name -> v1.TransactionFilter
+	3,  // 24: v1.ListTransactionsResponse.transactions:type_name -> v1.Transaction
+	6,  // 25: v1.PostingFilter.account:type_name -> v1.AccountFilter
+	22, // 26: v1.PostingFilter.start_date:type_name -> google.protobuf.Timestamp
+	22, // 27: v1.PostingFilter.end_date:type_name -> google.protobuf.Timestamp
+	20, // 28: v1.PostingFilter.metadata:type_name -> v1.PostingFilter.MetadataEntry
+	13, // 29: v1.ListPostingsRequest.filter:type_name -> v1.PostingFilter
+	2,  // 30: v1.ListPostingsResponse.postings:type_name -> v1.Posting
+	1,  // 31: v1.RecordTransactionRequest.PostingInput.account:type_name -> v1.Account
+	21, // 32: v1.RecordTransactionRequest.PostingInput.amount:type_name -> google.type.Money
+	4,  // 33: v1.LedgerService.RecordTransaction:input_type -> v1.RecordTransactionRequest
+	7,  // 34: v1.LedgerService.ListAccountBalances:input_type -> v1.ListAccountBalancesRequest
+	11, // 35: v1.LedgerService.ListTransactions:input_type -> v1.ListTransactionsRequest
+	14, // 36: v1.LedgerService.ListPostings:input_type -> v1.ListPostingsRequest
+	5,  // 37: v1.LedgerService.RecordTransaction:output_type -> v1.RecordTransactionResponse
+	8,  // 38: v1.LedgerService.ListAccountBalances:output_type -> v1.ListAccountBalancesResponse
+	12, // 39: v1.LedgerService.ListTransactions:output_type -> v1.ListTransactionsResponse
+	15, // 40: v1.LedgerService.ListPostings:output_type -> v1.ListPostingsResponse
+	37, // [37:41] is the sub-list for method output_type
+	33, // [33:37] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_v1_ledger_proto_init() }
@@ -1451,8 +1331,8 @@ func file_api_proto_v1_ledger_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_v1_ledger_proto_rawDesc), len(file_api_proto_v1_ledger_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   19,
+			NumEnums:      1,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -6,7 +6,6 @@ option go_package = "github.com/squall-chua/go-ledger-microservice/api/v1";
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/any.proto";
 import "google/type/money.proto";
 import "api/proto/v1/options.proto";
 
@@ -91,30 +90,16 @@ message AccountBalance {
   google.protobuf.Timestamp updated_at = 3;
 }
 
-message MetadataFilter {
-  enum Operator {
-    OPERATOR_UNSPECIFIED = 0;
-    OPERATOR_EQUAL = 1;
-    OPERATOR_NOT_EQUAL = 2;
-    OPERATOR_GREATER_THAN = 3;
-    OPERATOR_LESS_THAN = 4;
-    OPERATOR_GREATER_THAN_OR_EQUAL = 5;
-    OPERATOR_LESS_THAN_OR_EQUAL = 6;
-    OPERATOR_PARTIAL_MATCH = 7; // e.g., String contains or regex
-  }
-
-  string key = 1; // The metadata key to match on
-  Operator operator = 2;
-  google.protobuf.Any value = 3; // The value to compare against
-}
-
 // Every filter is optional. The date range is half-open: start_date is
 // included and end_date is excluded, so adjacent periods never double-count.
 message TransactionFilter {
   string idempotency_key = 1; // Exact; matches at most one Transaction.
   google.protobuf.Timestamp start_date = 2; // Transaction date, inclusive.
   google.protobuf.Timestamp end_date = 3; // Transaction date, exclusive.
-  repeated MetadataFilter metadata_filters = 4; // Reserved for the metadata rework; not applied yet.
+  // Exact metadata pairs the Transaction has to carry. Every pair given has
+  // to match, key and value; a Transaction carrying more is still a match. An
+  // empty key is refused.
+  map<string, string> metadata = 4;
 }
 
 message ListTransactionsRequest {
@@ -136,6 +121,9 @@ message PostingFilter {
   string currency_code = 2;
   google.protobuf.Timestamp start_date = 3; // Transaction date, inclusive.
   google.protobuf.Timestamp end_date = 4; // Transaction date, exclusive.
+  // Matched against the parent Transaction's metadata — a Posting has none of
+  // its own. Same exact-pair rule as on the Transaction listing.
+  map<string, string> metadata = 5;
 }
 
 message ListPostingsRequest {
