@@ -2,9 +2,12 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/type/money"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/squall-chua/go-ledger-microservice/api/v1"
 )
@@ -62,6 +65,40 @@ func TestParsePosting(t *testing.T) {
 			assert.Contains(t, err.Error(), arg)
 		}
 	})
+}
+
+// Wiring a whole server into a CLI test to read two lines of output is out of
+// proportion, so the decision `post` makes about a response is a pure function
+// and it is that which is pinned here.
+func TestPostReport(t *testing.T) {
+	response := &pb.RecordTransactionResponse{
+		Transaction: &pb.Transaction{
+			Id:   "018f-0000",
+			Date: timestamppb.New(time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)),
+			Note: "a deposit",
+			Postings: []*pb.Posting{{
+				Account: &pb.Account{Type: pb.AccountType_ACCOUNT_TYPE_ASSETS, User: "alice", Name: "Checking"},
+				Amount:  &money.Money{CurrencyCode: "USD", Units: 10},
+				Balance: &money.Money{CurrencyCode: "USD", Units: 10},
+			}},
+		},
+	}
+
+	fresh := postReport("key-1", response)
+	assert.Contains(t, fresh, "recorded 018f-0000")
+	assert.Contains(t, fresh, "ASSETS:alice:Checking")
+	assert.Contains(t, fresh, "balance 10 USD")
+	assert.NotContains(t, fresh, "replay")
+
+	// A replay prints the original Transaction, postings and running balances
+	// alike, and says it was a replay rather than a new record.
+	response.Replayed = true
+	replayed := postReport("key-1", response)
+	assert.Contains(t, replayed, "replayed 018f-0000")
+	assert.NotContains(t, replayed, "recorded 018f-0000")
+	assert.Contains(t, replayed, "ASSETS:alice:Checking")
+	assert.Contains(t, replayed, "balance 10 USD")
+	assert.Contains(t, replayed, `(idempotency key "key-1" was already recorded, so nothing new was recorded)`)
 }
 
 func TestParseAccount(t *testing.T) {

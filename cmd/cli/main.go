@@ -121,17 +121,12 @@ func run(args []string) error {
 		call = func(ctx context.Context, client pb.LedgerServiceClient) error {
 			response, err := client.RecordTransaction(ctx, request)
 			if status.Code(err) == codes.AlreadyExists {
-				return fmt.Errorf("replay: idempotency key %q was already recorded, so nothing new was recorded", request.IdempotencyKey)
+				return fmt.Errorf("idempotency key %q was already recorded with different content, so nothing was recorded", request.IdempotencyKey)
 			}
 			if err != nil {
 				return fail(err)
 			}
-			transaction := response.Transaction
-			fmt.Printf("recorded %s  %s  %s\n", transaction.Id, formatDate(transaction.Date), transaction.Note)
-			for _, posting := range transaction.Postings {
-				fmt.Printf("  %-32s %16s  balance %s\n",
-					formatAccount(posting.Account), formatMoney(posting.Amount), formatMoney(posting.Balance))
-			}
+			fmt.Print(postReport(request.IdempotencyKey, response))
 			return nil
 		}
 
@@ -238,6 +233,30 @@ func run(args []string) error {
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "bearer "+*token)
 
 	return call(ctx, pb.NewLedgerServiceClient(conn))
+}
+
+// postReport renders what `post` prints for a successful RecordTransaction. A
+// replay is one of those: the same key with identical content recorded the
+// money exactly once, which is what the caller wanted, so the original
+// Transaction is printed exactly as a fresh record is and only the wording
+// tells the two apart.
+func postReport(key string, response *pb.RecordTransactionResponse) string {
+	transaction := response.Transaction
+	verb := "recorded"
+	if response.Replayed {
+		verb = "replayed"
+	}
+
+	var report strings.Builder
+	fmt.Fprintf(&report, "%s %s  %s  %s\n", verb, transaction.Id, formatDate(transaction.Date), transaction.Note)
+	for _, posting := range transaction.Postings {
+		fmt.Fprintf(&report, "  %-32s %16s  balance %s\n",
+			formatAccount(posting.Account), formatMoney(posting.Amount), formatMoney(posting.Balance))
+	}
+	if response.Replayed {
+		fmt.Fprintf(&report, "(idempotency key %q was already recorded, so nothing new was recorded)\n", key)
+	}
+	return report.String()
 }
 
 // parsePosting parses one posting argument, TYPE:USER:NAME:AMOUNT+CURRENCY.
