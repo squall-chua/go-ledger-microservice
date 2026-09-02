@@ -49,6 +49,13 @@ func main() {
 		log.Fatalf("Failed to open Postgres connection: %v", err)
 	}
 	defer db.Close()
+	// database/sql opens connections without limit by default, so a burst of
+	// traffic asks Postgres for more sessions than its max_connections allows
+	// and every one over the line is refused. Queue on the pool instead.
+	// ponytail: fixed ceiling, make it a flag if a deployment outgrows it.
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(time.Hour)
 	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("Failed to reach Postgres: %v", err)
 	}

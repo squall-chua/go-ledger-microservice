@@ -97,7 +97,7 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 		if posting.Account == nil {
 			return draft, status.Errorf(codes.InvalidArgument, "posting %d has no account", i)
 		}
-		if posting.Account.Type == pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+		if !recordableType(posting.Account.Type) {
 			return draft, status.Errorf(codes.InvalidArgument, "posting %d has an unspecified account type", i)
 		}
 
@@ -144,7 +144,7 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 	// the overdraft guard off silently and record the transaction anyway.
 	verify := make([]repository.Account, 0, len(req.VerifyNonNegativeBalances))
 	for i, toVerify := range req.VerifyNonNegativeBalances {
-		if toVerify == nil || toVerify.Type == pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+		if toVerify == nil || !recordableType(toVerify.Type) {
 			return draft, status.Errorf(codes.InvalidArgument,
 				"verify_non_negative_balances %d is not a complete account", i)
 		}
@@ -226,6 +226,16 @@ func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRe
 	}
 
 	return &pb.ListPostingsResponse{Postings: postings, TotalCount: total}, nil
+}
+
+// recordableType reports whether the type is one of the five the ledger keeps
+// accounts under. A proto3 enum is open, so a caller built against a newer
+// schema can send a number this build has no name for: it would be stored as
+// that number and read back as unspecified, putting money under an account no
+// read can ever name again, so it is refused on the way in.
+func recordableType(t pb.AccountType) bool {
+	_, known := pb.AccountType_name[int32(t)]
+	return known && t != pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED
 }
 
 // checkMetadata refuses a malformed pair, on the way in as well as on the way

@@ -198,6 +198,19 @@ func TestRecordTransactionRefusesAnUnspecifiedAccountType(t *testing.T) {
 	assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}))
 }
 
+// A proto3 enum is open, so a caller built against a newer schema can put a
+// number on the wire this build has no name for. Storing it would write money
+// under an account every read reports as unspecified.
+func TestRecordTransactionRefusesAnUnknownAccountType(t *testing.T) {
+	h := newHarness(t)
+
+	_, err := h.record(transfer("key", "note",
+		account(pb.AccountType(99), "alice", "Checking"), opening, usd(100, 0)))
+
+	requireCode(t, err, codes.InvalidArgument)
+	assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}))
+}
+
 func TestMoneyRoundTripsExactlyAtNineDigits(t *testing.T) {
 	h := newHarness(t)
 

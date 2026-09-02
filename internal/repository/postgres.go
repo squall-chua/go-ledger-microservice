@@ -41,10 +41,30 @@ var ErrBalanceWouldGoNegative = errors.New("account would go negative")
 // is corrected with a reversing transaction, never with a backdated one.
 var ErrBackdated = errors.New("transaction is backdated")
 
+// schemaLockID is the advisory lock the schema is applied under. Any constant
+// will do; it only has to be the same in every process.
+const schemaLockID = 7264166582348901 // "ledger schema"
+
 // ApplySchema creates the ledger schema if it is not already present. It is
-// safe to run on every startup.
+// safe to run on every startup, and on several at once: `IF NOT EXISTS` is not
+// itself race-free — two replicas creating the same table in the same instant
+// have one of them fail on a duplicate catalogue row — so the whole schema is
+// applied under an advisory lock and the second replica finds the work done.
 func ApplySchema(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, schemaSQL)
+	// One connection throughout: a session advisory lock is held by the
+	// connection that took it, so releasing it on another releases nothing.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", schemaLockID); err != nil {
+		return err
+	}
+	defer conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", schemaLockID) //nolint:errcheck // the lock also goes with the session
+
+	_, err = conn.ExecContext(ctx, schemaSQL)
 	return err
 }
 
@@ -293,9 +313,12 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	}
 
 	postings := make([]*pb.Posting, 0, len(draft.Postings))
-	// The balance each touched account is left with once every posting has been
-	// applied, which is what the non-negative verification below judges.
-	finalBalances := make(map[Account]decimal.Decimal, len(draft.Postings))
+	// The balance each touched account and currency is left with once every
+	// posting has been applied, which is what the non-negative verification
+	// below judges. Keyed by currency too: an account holding two currencies
+	// keeps a balance per currency, and guarding only the last one written
+	// would let the other go negative unseen.
+	finalBalances := make(map[balanceKey]decimal.Decimal, len(draft.Postings))
 	for _, draftPosting := range draft.Postings {
 		// The upsert both applies the amount and returns the running balance of
 		// the account after this leg, under the row lock it takes itself.
@@ -316,7 +339,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 		if err != nil {
 			return nil, false, err
 		}
-		finalBalances[draftPosting.Account] = balance
+		finalBalances[balanceKey{Account: draftPosting.Account, CurrencyCode: draftPosting.CurrencyCode}] = balance
 
 		postingID, err := uuid.NewV7()
 		if err != nil {
@@ -367,9 +390,11 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	// Every account named here is one the transaction touches: a name matching
 	// no posting is refused before the draft gets this far.
 	for _, account := range draft.VerifyNonNegative {
-		if balance, touched := finalBalances[account]; touched && balance.IsNegative() {
-			return nil, false, fmt.Errorf("%w: %s:%s:%s would be %s",
-				ErrBalanceWouldGoNegative, account.Type, account.User, account.Name, balance)
+		for key, balance := range finalBalances {
+			if key.Account == account && balance.IsNegative() {
+				return nil, false, fmt.Errorf("%w: %s:%s:%s would be %s %s",
+					ErrBalanceWouldGoNegative, account.Type, account.User, account.Name, balance, key.CurrencyCode)
+			}
 		}
 	}
 

@@ -54,8 +54,11 @@ func AuthInterceptor(validator TokenValidator) grpc.UnaryServerInterceptor {
 			return nil, status.Errorf(codes.Unauthenticated, "invalid auth token: %v", err)
 		}
 
+		// A validator that hands back neither a token nor an error has told the
+		// ledger nothing about the caller, which is refused rather than read
+		// through as an empty scope set.
 		tokenInfo, err := validator.ValidateToken(ctx, tokenStr)
-		if err != nil {
+		if err != nil || tokenInfo == nil {
 			return nil, status.Errorf(codes.Unauthenticated, "token validation failed")
 		}
 
