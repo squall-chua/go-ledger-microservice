@@ -691,12 +691,32 @@ func TestAnOmittedDateIsStampedAndNeverRefused(t *testing.T) {
 	h.mustRecord(drifted)
 
 	stamped := h.mustRecord(transfer("stamped", "no date at all", opening, cash, usd(5, 0)))
-	assert.False(t, stamped.Date.AsTime().Before(ahead),
-		"a stamped date advances past the latest posting of the accounts it touches")
+	assert.True(t, stamped.Date.AsTime().After(ahead),
+		"a stamped date advances past the latest posting of the accounts it touches, not onto it")
 
 	// With no posting ahead of the clock, the stamp is simply now.
 	fresh := h.mustRecord(transfer("fresh", "untouched accounts", savings, rent, usd(1, 0)))
 	assert.WithinDuration(t, time.Now(), fresh.Date.AsTime(), time.Minute)
+}
+
+// Landing past `last_date` rather than onto it is what keeps a run of stamped
+// transactions apart: onto it they would all carry the parked date, and the
+// Register could no longer order them by date.
+func TestStampedDatesBehindAParkedPostingAreDistinct(t *testing.T) {
+	h := newHarness(t)
+
+	ahead := time.Now().Add(4 * time.Minute).UTC().Truncate(time.Millisecond)
+	drifted := transfer("ahead", "a drifting clock", opening, cash, usd(10, 0))
+	drifted.Date = timestamppb.New(ahead)
+	h.mustRecord(drifted)
+
+	previous := ahead
+	for i := range 5 {
+		stamped := h.mustRecord(transfer(fmt.Sprintf("stamped-%d", i), "no date at all", opening, cash, usd(1, 0)))
+		date := stamped.Date.AsTime()
+		assert.True(t, date.After(previous), "stamped date %s must advance past %s", date, previous)
+		previous = date
+	}
 }
 
 func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {

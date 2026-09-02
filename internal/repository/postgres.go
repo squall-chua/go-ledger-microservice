@@ -236,9 +236,13 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	case draft.Date == nil:
 		// A stamped date is the transaction's position in the affected
 		// accounts' order rather than a claim about the world, so the ledger
-		// advances it instead of refusing a caller who supplied nothing.
-		if latest.After(date) {
-			date = latest
+		// advances it instead of refusing a caller who supplied nothing. It
+		// lands strictly past `latest`, by the microsecond a timestamptz
+		// column resolves to, so a run of stamped transactions behind one
+		// posting parked ahead of the clock gets a date each rather than
+		// collapsing onto that posting's date.
+		if !date.After(latest) {
+			date = latest.Add(time.Microsecond)
 		}
 	case date.Before(latest):
 		return nil, false, fmt.Errorf("%w: %s:%s:%s already has a posting dated %s",
