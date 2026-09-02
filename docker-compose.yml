@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ledger
+    ports:
+      - "5432:5432"
+    volumes:
+      - ledger-data:/var/lib/postgresql/data
+    healthcheck:
+      # The ledger exits if it cannot reach Postgres at startup, so it has to
+      # wait for a database that is actually accepting connections.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  ledger:
+    build: .
+    command:
+      - --port=8080
+      - --database-url=postgres://postgres:postgres@postgres:5432/ledger?sslmode=disable
+      - --jwt-secret=${LEDGER_JWT_SECRET:-super-secret-key}
+      - --cors-origins=${LEDGER_CORS_ORIGINS:-*}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  ledger-data:
