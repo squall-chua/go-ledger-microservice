@@ -751,22 +751,45 @@ func TestVerifyNonNegativeBalancesLeavesUnnamedAccountsAlone(t *testing.T) {
 	assertMoney(t, usd(-50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
 }
 
+// An account to verify is matched exactly, so every near miss on the composite
+// names an account this transaction does not touch. That is refused rather than
+// passed over: a typo would otherwise turn the guard off silently and record
+// the transaction anyway, which is the whole thing the caller asked to prevent.
+// Nothing here is a pattern — "*", "%" and "Check%" are literal names.
 func TestVerifyNonNegativeBalancesMatchesAccountsExactly(t *testing.T) {
 	h := newHarness(t)
 
-	// Every named account is a near miss on one part of the composite, and "*"
-	// is a literal name rather than a wildcard, so none of them guards the
-	// account this transaction actually drives negative.
-	request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
-	request.VerifyNonNegativeBalances = []*pb.Account{
-		account(pb.AccountType_ACCOUNT_TYPE_LIABILITIES, "alice", "Checking"),
-		account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "bob", "Checking"),
-		account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check"),
-		account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "*", "*"),
+	nearMisses := map[string]*pb.Account{
+		"the wrong type":      account(pb.AccountType_ACCOUNT_TYPE_LIABILITIES, "alice", "Checking"),
+		"the wrong user":      account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "bob", "Checking"),
+		"a truncated name":    account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check"),
+		"a typo in the name":  account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Checkin"),
+		"an empty name":       account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", ""),
+		"an empty user":       account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "", "Checking"),
+		"only the type set":   account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "", ""),
+		"a star as the name":  account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "*", "*"),
+		"a per-cent sign":     account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "%"),
+		"a trailing per-cent": account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check%"),
 	}
 
-	h.mustRecord(request)
-	assertMoney(t, usd(-50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+	for name, toVerify := range nearMisses {
+		t.Run(name, func(t *testing.T) {
+			request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
+			request.VerifyNonNegativeBalances = []*pb.Account{toVerify}
+
+			_, err := h.record(request)
+			requireCode(t, err, codes.InvalidArgument)
+			assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}), "the refused transaction changed nothing")
+		})
+	}
+
+	// The account the transaction really does drive negative is spelled exactly,
+	// so it guards, and the same transaction is refused on its balance instead.
+	request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
+	request.VerifyNonNegativeBalances = []*pb.Account{cash}
+	_, err := h.record(request)
+	requireCode(t, err, codes.FailedPrecondition)
+	assert.Contains(t, err.Error(), "ASSETS:alice:Checking")
 }
 
 func TestATransactionThatDipsNegativeAndRecoversIsAccepted(t *testing.T) {

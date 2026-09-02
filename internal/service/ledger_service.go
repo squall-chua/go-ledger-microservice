@@ -120,19 +120,32 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 		return draft, status.Errorf(codes.InvalidArgument, "postings do not sum to zero (sum is %s)", sum.String())
 	}
 
+	touched := make(map[repository.Account]bool, len(postings))
+	for _, posting := range postings {
+		touched[posting.Account] = true
+	}
+
 	// Accounts to verify are matched exactly, so each one has to be a complete
-	// account: nothing here is a pattern.
+	// account: nothing here is a pattern. An account no posting touches is
+	// refused rather than passed over — a typo in the name would otherwise turn
+	// the overdraft guard off silently and record the transaction anyway.
 	verify := make([]repository.Account, 0, len(req.VerifyNonNegativeBalances))
 	for i, toVerify := range req.VerifyNonNegativeBalances {
 		if toVerify == nil || toVerify.Type == pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
 			return draft, status.Errorf(codes.InvalidArgument,
 				"verify_non_negative_balances %d is not a complete account", i)
 		}
-		verify = append(verify, repository.Account{
+		toGuard := repository.Account{
 			Type: accountfmt.AccountTypeToString(toVerify.Type),
 			User: toVerify.User,
 			Name: toVerify.Name,
-		})
+		}
+		if !touched[toGuard] {
+			return draft, status.Errorf(codes.InvalidArgument,
+				"verify_non_negative_balances %d names %s:%s:%s, which no posting of this transaction touches",
+				i, toGuard.Type, toGuard.User, toGuard.Name)
+		}
+		verify = append(verify, toGuard)
 	}
 
 	return repository.TransactionDraft{

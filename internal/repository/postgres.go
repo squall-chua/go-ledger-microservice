@@ -333,7 +333,8 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 
 	// Verification happens once, after every posting has been applied, so a
 	// transaction that dips below zero and recovers within itself is accepted.
-	// An account named here but not touched cannot have moved, so it is skipped.
+	// Every account named here is one the transaction touches: a name matching
+	// no posting is refused before the draft gets this far.
 	for _, account := range draft.VerifyNonNegative {
 		if balance, touched := finalBalances[account]; touched && balance.IsNegative() {
 			return nil, false, fmt.Errorf("%w: %s:%s:%s would be %s",
