@@ -136,5 +136,40 @@ describe('describeLedgerError', () => {
   it('falls back to the thrown error, then to a plain sentence', () => {
     expect(describeLedgerError(new Error('Failed to fetch'))).toBe('Failed to fetch')
     expect(describeLedgerError({})).toBe('The ledger refused the transaction.')
+    expect(describeLedgerError(null)).toBe('The ledger refused the transaction.')
+    expect(describeLedgerError({ response: { _data: { code: 9, message: '' } } })).toBe('The ledger refused the transaction.')
+  })
+
+  it('explains a backdated date, keeping what the ledger said', () => {
+    const err = {
+      response: {
+        _data: {
+          code: 9,
+          message: 'transaction is backdated: assets:alice:Checking already has a posting dated 2026-09-02T01:26:24.196084Z'
+        }
+      }
+    }
+    const description = describeLedgerError(err)
+    expect(description).toContain('assets:alice:Checking already has a posting dated 2026-09-02T01:26:24.196084Z')
+    expect(description).toContain('earlier than the latest posting on an account this entry touches')
+  })
+
+  it('explains a date too far in the future', () => {
+    const err = { response: { _data: { code: 3, message: 'date is more than five minutes in the future' } } }
+    const description = describeLedgerError(err)
+    expect(description).toContain('five minutes of clock skew')
+    expect(description).not.toContain('latest posting')
+  })
+
+  it('leaves a rejection that is not about the date exactly as it arrived', () => {
+    const unrelated = [
+      'account would go negative',
+      'idempotency key reused with different content',
+      'a transaction carries a single currency',
+      'the transaction was not recorded, try again: deadlock detected'
+    ]
+    for (const message of unrelated) {
+      expect(describeLedgerError({ response: { _data: { code: 9, message } } })).toBe(message)
+    }
   })
 })

@@ -119,7 +119,30 @@ export const toRecordTransactionRequest = (values: TransactionFormValues): Recor
  * A rejection from the ledger as something the operator can read. The gateway
  * puts the gRPC status body on `err.response._data`, which ofetch hands back on
  * the thrown error.
+ *
+ * The two transaction date rules of docs/adr/0001-forward-only-transaction-dates.md
+ * are spelled out rather than passed through, so the operator can pick a
+ * workable date instead of retrying blindly. They are told apart by the wording
+ * the server sends, because both refusals are just text on a status:
+ *
+ * - backdating, FailedPrecondition (9), `transaction is backdated: <account>
+ *   already has a posting dated <date>` — internal/repository/postgres.go:42,286
+ * - future, InvalidArgument (3), `date is more than five minutes in the future`
+ *   — internal/service/ledger_service.go:89
+ *
+ * The server puts both at the front of the message, so matching on the prefix
+ * stays narrow. Anything else is left exactly as the ledger worded it.
  */
 export const describeLedgerError = (err: any): string => {
-  return err?.response?._data?.message || err?.message || 'The ledger refused the transaction.'
+  const message: string = err?.response?._data?.message || err?.message || 'The ledger refused the transaction.'
+
+  if (message.startsWith('transaction is backdated')) {
+    return `${message}. The transaction date is earlier than the latest posting on an account this entry touches, and the ledger only records forward. Choose a date at or after that posting, or leave the date blank for the ledger to stamp one.`
+  }
+
+  if (message.startsWith('date is more than five minutes in the future')) {
+    return `${message}. The transaction date is further ahead than the five minutes of clock skew the ledger allows. Choose a date at or near now, or leave the date blank for the ledger to stamp one.`
+  }
+
+  return message
 }
