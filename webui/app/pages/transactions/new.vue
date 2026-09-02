@@ -22,7 +22,7 @@
     </div>
 
     <div
-      v-if="replayed"
+      v-if="replayedRow"
       ref="replayedBanner"
       class="mb-6 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40"
     >
@@ -44,26 +44,26 @@
         <div class="flex justify-between items-start mb-2">
           <div class="flex items-center gap-3">
             <span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-md text-gray-600 dark:text-gray-400">
-              {{ new Date(replayed.date).toLocaleString() }}
+              {{ replayedRow.date }}
             </span>
-            <span class="font-medium text-gray-900 dark:text-gray-100">{{ replayed.note }}</span>
+            <span class="font-medium text-gray-900 dark:text-gray-100">{{ replayedRow.note }}</span>
           </div>
-          <span class="text-xs text-gray-400 font-mono">{{ replayed.id }}</span>
+          <span class="text-xs text-gray-400 font-mono">{{ replayedRow.id }}</span>
         </div>
 
         <div class="space-y-1 mt-3 pl-2 sm:pl-10">
           <div
-            v-for="posting in replayed.postings"
+            v-for="posting in replayedRow.postings"
             :key="posting.id"
             class="flex justify-between text-sm"
           >
             <span class="text-gray-600 dark:text-gray-300 font-mono flex flex-wrap gap-x-3">
-              <span class="text-gray-400 dark:text-gray-500">{{ renderAccount(posting.account).type }}</span>
-              <span>{{ renderAccount(posting.account).user }}</span>
-              <span>{{ renderAccount(posting.account).name }}</span>
+              <span class="text-gray-400 dark:text-gray-500">{{ posting.account.type }}</span>
+              <span>{{ posting.account.user }}</span>
+              <span>{{ posting.account.name }}</span>
             </span>
-            <span :class="['font-medium w-24 text-right', isNegativeMoney(posting.amount) ? 'text-red-500' : 'text-emerald-500']">
-              {{ formatMoney(posting.amount) }}
+            <span :class="['font-medium w-24 text-right', posting.amount.negative ? 'text-red-500' : 'text-emerald-500']">
+              {{ posting.amount.text }}
             </span>
           </div>
         </div>
@@ -302,13 +302,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import type { RecordTransactionResponse, Transaction } from '~/types/ledger'
-import type { PostingRow, TransactionFormValues } from '~/utils/transactionForm'
+import type { PostingFormRow, TransactionFormValues } from '~/utils/transactionForm'
 
 const { fetchApi } = useLedgerApi()
 const toast = useToast()
 const router = useRouter()
 
-const getDefaultPosting = (): PostingRow => ({
+const getDefaultPosting = (): PostingFormRow => ({
   type: 'ACCOUNT_TYPE_ASSETS',
   user: '',
   name: '',
@@ -334,6 +334,7 @@ const submitting = ref(false)
 // the page rather than routing away like a fresh entry does.
 const replayed = ref<Transaction | null>(null)
 const replayedBanner = ref<HTMLElement | null>(null)
+const replayedRow = computed(() => replayed.value ? toTransactionRows([replayed.value])[0] : null)
 
 // The running sum is kept in whole nanos, the same integers the postings are
 // sent as, so what the operator watches reach zero is what the ledger checks.

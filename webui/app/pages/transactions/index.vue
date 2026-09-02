@@ -139,7 +139,7 @@
       </div>
 
       <div
-        v-else-if="transactions.length === 0"
+        v-else-if="rows.length === 0"
         class="text-center py-10"
       >
         <UIcon
@@ -159,50 +159,50 @@
         class="divide-y divide-gray-200 dark:divide-gray-800"
       >
         <div
-          v-for="tx in transactions"
-          :key="tx.id"
+          v-for="row in rows"
+          :key="row.id"
           class="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
         >
           <div class="flex justify-between items-start mb-2">
             <div class="flex items-center gap-3">
               <span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-md text-gray-600 dark:text-gray-400">
-                {{ new Date(tx.date).toLocaleString() }}
+                {{ row.date }}
               </span>
-              <span class="font-medium text-gray-900 dark:text-gray-100">{{ tx.note }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ row.note }}</span>
             </div>
-            <span class="text-xs text-gray-400 font-mono">{{ tx.id?.substring(0, 8) }}</span>
+            <span class="text-xs text-gray-400 font-mono">{{ row.shortId }}</span>
           </div>
 
           <div
-            v-if="Object.keys(tx.metadata || {}).length > 0"
+            v-if="row.metadata.length > 0"
             class="flex flex-wrap gap-2 mt-2"
           >
             <span
-              v-for="(value, key) in tx.metadata"
-              :key="key"
+              v-for="pair in row.metadata"
+              :key="pair.key"
               class="text-xs font-mono px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-gray-600 dark:text-gray-400"
             >
-              {{ key }} = {{ value }}
+              {{ pair.key }} = {{ pair.value }}
             </span>
           </div>
 
           <div class="space-y-1 mt-3 pl-2 sm:pl-10">
             <div
-              v-for="posting in tx.postings"
+              v-for="posting in row.postings"
               :key="posting.id"
               class="flex justify-between text-sm"
             >
               <span class="text-gray-600 dark:text-gray-300 font-mono flex flex-wrap gap-x-3">
-                <span class="text-gray-400 dark:text-gray-500">{{ renderAccount(posting.account).type }}</span>
-                <span>{{ renderAccount(posting.account).user }}</span>
-                <span>{{ renderAccount(posting.account).name }}</span>
+                <span class="text-gray-400 dark:text-gray-500">{{ posting.account.type }}</span>
+                <span>{{ posting.account.user }}</span>
+                <span>{{ posting.account.name }}</span>
               </span>
               <div class="flex items-center gap-4">
-                <span :class="['font-medium w-24 text-right', isNegativeMoney(posting.amount) ? 'text-red-500' : 'text-emerald-500']">
-                  {{ formatMoney(posting.amount) }}
+                <span :class="['font-medium w-24 text-right', posting.amount.negative ? 'text-red-500' : 'text-emerald-500']">
+                  {{ posting.amount.text }}
                 </span>
                 <span class="text-gray-400 w-32 text-right hidden sm:inline-block">
-                  (= {{ formatMoney(posting.balance) }})
+                  (= {{ posting.balance.text }})
                 </span>
               </div>
             </div>
@@ -229,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { ListTransactionsResponse, Transaction } from '~/types/ledger'
 import type { TransactionFilterControls } from '~/utils/transactionFilters'
 
@@ -268,6 +268,8 @@ const {
   rows: response => response.transactions,
   pageSize: PAGE_SIZE
 })
+
+const rows = computed(() => toTransactionRows(transactions.value))
 
 const clearFilters = () => {
   filters.value = emptyFilters()

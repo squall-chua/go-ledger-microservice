@@ -5,7 +5,7 @@ import type { AccountType, Money, RecordTransactionRequest } from '../types/ledg
  * empty user is a real, exactly-matched account segment, never a wildcard
  * (docs/adr/0002-flat-account-names.md).
  */
-export interface PostingRow {
+export interface PostingFormRow {
   type: AccountType
   user: string
   name: string
@@ -24,7 +24,7 @@ export interface TransactionFormValues {
   /** A `datetime-local` value. Blank leaves the date for the ledger to stamp. */
   date: string
   idempotencyKey: string
-  postings: PostingRow[]
+  postings: PostingFormRow[]
   metadata: MetadataRow[]
 }
 

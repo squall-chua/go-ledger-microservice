@@ -100,7 +100,7 @@
                 Loading balances...
               </td>
             </tr>
-            <tr v-else-if="balances.length === 0">
+            <tr v-else-if="rows.length === 0">
               <td
                 colspan="5"
                 class="p-8 text-center text-gray-500"
@@ -109,32 +109,32 @@
               </td>
             </tr>
             <tr
-              v-for="(row, i) in balances"
+              v-for="(row, i) in rows"
               v-else
               :key="i"
               class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
             >
               <td class="p-4 font-medium text-gray-900 dark:text-white">
-                {{ renderAccount(row.account).type }}
+                {{ row.account.type }}
               </td>
               <td class="p-4 text-gray-900 dark:text-white">
-                {{ renderAccount(row.account).user }}
+                {{ row.account.user }}
               </td>
               <td class="p-4 text-gray-900 dark:text-white">
-                {{ renderAccount(row.account).name }}
+                {{ row.account.name }}
               </td>
               <td class="p-4">
                 <span
                   :class="[
                     'font-semibold',
-                    isNegativeMoney(row.balance) ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
+                    row.balance.negative ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
                   ]"
                 >
-                  {{ formatMoney(row.balance) }}
+                  {{ row.balance.text }}
                 </span>
               </td>
               <td class="p-4 text-sm text-gray-500 dark:text-gray-400">
-                {{ new Date(row.updatedAt).toLocaleString() }}
+                {{ row.updatedAt }}
               </td>
             </tr>
           </tbody>
@@ -145,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { AccountBalance, ListAccountBalancesResponse } from '~/types/ledger'
 import type { BalanceFilterControls } from '~/utils/balanceFilters'
 
@@ -167,4 +167,6 @@ const { rows: balances, loading, error, refresh } = useLedgerQuery<ListAccountBa
   body: () => toListAccountBalancesRequest(filters.value),
   rows: response => response.balances
 })
+
+const rows = computed(() => toBalanceRows(balances.value))
 </script>

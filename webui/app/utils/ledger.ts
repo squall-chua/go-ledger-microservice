@@ -32,9 +32,14 @@ export const isNegativeMoney = (money?: Money | null): boolean => {
   return moneyToNumber(money) < 0
 }
 
-export const formatMoney = (money?: Money | null): string => {
+/** A plain decimal as currency. The Overview cards total up before formatting. */
+export const formatAmount = (amount: number, currencyCode: string): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: money?.currencyCode || 'USD'
-  }).format(moneyToNumber(money))
+    currency: currencyCode || 'USD'
+  }).format(amount)
+}
+
+export const formatMoney = (money?: Money | null): string => {
+  return formatAmount(moneyToNumber(money), money?.currencyCode ?? '')
 }
