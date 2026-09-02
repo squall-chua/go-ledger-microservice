@@ -27,9 +27,10 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-// ErrIdempotencyKeyExists reports that the idempotency key of the transaction
-// being recorded is already held by another transaction.
-var ErrIdempotencyKeyExists = errors.New("idempotency key already recorded")
+// ErrIdempotencyKeyReused reports that the idempotency key of the transaction
+// being recorded already holds a transaction with different content. The same
+// key carrying identical content is an idempotency replay instead.
+var ErrIdempotencyKeyReused = errors.New("idempotency key already recorded with different content")
 
 // ErrBalanceWouldGoNegative reports that the transaction would have left an
 // account the caller asked to verify with a negative balance.
@@ -157,11 +158,24 @@ func New(db *sql.DB) *Repository {
 }
 
 // RecordTransaction writes the transaction, its postings and the resulting
-// balance snapshots in one database transaction.
-func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDraft) (*pb.Transaction, error) {
+// balance snapshots in one database transaction. It reports whether the
+// transaction returned is an idempotency replay of one already recorded rather
+// than a new one.
+func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDraft) (*pb.Transaction, bool, error) {
+	fingerprint := fingerprintOf(draft)
+
+	// A retry is the ordinary outcome of a network timeout, so it is answered
+	// before the write path opens: the original transaction may well be older
+	// than the accounts' latest postings by now, and re-running the backdating
+	// guard over it would refuse the very retry it is meant to replay.
+	replayed, err := r.recordedUnder(ctx, draft.IdempotencyKey, fingerprint)
+	if replayed != nil || err != nil {
+		return replayed, replayed != nil, err
+	}
+
 	transactionID, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	metadata := draft.Metadata
@@ -170,12 +184,12 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	}
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
 
@@ -211,7 +225,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			key.Type, key.User, key.Name, key.CurrencyCode, date,
 		).Scan(&lastDate)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if lastDate.After(latest) {
 			latest, latestKey = lastDate, key
@@ -227,25 +241,33 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			date = latest
 		}
 	case date.Before(latest):
-		return nil, fmt.Errorf("%w: %s:%s:%s already has a posting dated %s",
+		return nil, false, fmt.Errorf("%w: %s:%s:%s already has a posting dated %s",
 			ErrBackdated, latestKey.Type, latestKey.User, latestKey.Name,
 			latest.UTC().Format(time.RFC3339Nano))
 	}
 
 	// The unique constraint on idempotency_key is what serializes concurrent
-	// duplicates.
+	// duplicates: the loser rolls its whole attempt back and re-reads the
+	// winner, so identical requests racing each other apply exactly once.
 	var createdAt time.Time
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO transactions (id, idempotency_key, date, note, metadata, request_fingerprint)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING created_at`,
-		transactionID, draft.IdempotencyKey, date, draft.Note, metadataJSON, "",
+		transactionID, draft.IdempotencyKey, date, draft.Note, metadataJSON, fingerprint,
 	).Scan(&createdAt)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return nil, ErrIdempotencyKeyExists
+			tx.Rollback() //nolint:errcheck // the winner is read outside this aborted transaction
+			winner, err := r.recordedUnder(ctx, draft.IdempotencyKey, fingerprint)
+			if err == nil && winner == nil {
+				// The row the violation reported has committed by now, so this
+				// cannot happen; refusing beats handing back no transaction.
+				err = ErrIdempotencyKeyReused
+			}
+			return winner, winner != nil, err
 		}
-		return nil, err
+		return nil, false, err
 	}
 
 	postings := make([]*pb.Posting, 0, len(draft.Postings))
@@ -270,13 +292,13 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			draftPosting.CurrencyCode, draftPosting.Amount, date,
 		).Scan(&balance)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		finalBalances[draftPosting.Account] = balance
 
 		postingID, err := uuid.NewV7()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		var postingCreatedAt time.Time
@@ -291,7 +313,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			balance, date,
 		).Scan(&postingCreatedAt)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		postings = append(postings, &pb.Posting{
@@ -314,13 +336,13 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	// An account named here but not touched cannot have moved, so it is skipped.
 	for _, account := range draft.VerifyNonNegative {
 		if balance, touched := finalBalances[account]; touched && balance.IsNegative() {
-			return nil, fmt.Errorf("%w: %s:%s:%s would be %s",
+			return nil, false, fmt.Errorf("%w: %s:%s:%s would be %s",
 				ErrBalanceWouldGoNegative, account.Type, account.User, account.Name, balance)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	return &pb.Transaction{
@@ -331,7 +353,35 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 		Metadata:       metadata,
 		Postings:       postings,
 		CreatedAt:      timestamppb.New(createdAt),
-	}, nil
+	}, false, nil
+}
+
+// recordedUnder returns the transaction already recorded under this idempotency
+// key, or nil when the key is free. The key alone is not enough: it is an
+// idempotency replay only when the stored fingerprint agrees, and a fingerprint
+// that disagrees is a key collision, refused rather than answered with someone
+// else's transaction.
+func (r *Repository) recordedUnder(ctx context.Context, key, fingerprint string) (*pb.Transaction, error) {
+	var stored string
+	err := r.db.QueryRowContext(ctx,
+		"SELECT request_fingerprint FROM transactions WHERE idempotency_key = $1", key,
+	).Scan(&stored)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case stored != fingerprint:
+		return nil, ErrIdempotencyKeyReused
+	}
+
+	// Transactions are immutable and the key is unique, so the row read above
+	// is the one this listing returns, postings and all.
+	transactions, _, err := r.ListTransactions(ctx, TransactionFilter{IdempotencyKey: key}, Page{Size: 1})
+	if err != nil || len(transactions) == 0 {
+		return nil, err
+	}
+	return transactions[0], nil
 }
 
 // ListAccountBalances reads the balance snapshot, filtered exactly. With an

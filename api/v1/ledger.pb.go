@@ -414,8 +414,12 @@ func (x *RecordTransactionRequest) GetVerifyNonNegativeBalances() []*Account {
 }
 
 type RecordTransactionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Transaction   *Transaction           `protobuf:"bytes,1,opt,name=transaction,proto3" json:"transaction,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Transaction *Transaction           `protobuf:"bytes,1,opt,name=transaction,proto3" json:"transaction,omitempty"`
+	// True when this was an Idempotency replay: the key had already recorded
+	// this exact content, so the original Transaction is returned and nothing
+	// new was written.
+	Replayed      bool `protobuf:"varint,2,opt,name=replayed,proto3" json:"replayed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -455,6 +459,13 @@ func (x *RecordTransactionResponse) GetTransaction() *Transaction {
 		return x.Transaction
 	}
 	return nil
+}
+
+func (x *RecordTransactionResponse) GetReplayed() bool {
+	if x != nil {
+		return x.Replayed
+	}
+	return false
 }
 
 // An AccountFilter narrows a read to the Accounts whose fields match it
@@ -1165,9 +1176,10 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aa\n" +
 	"\fPostingInput\x12%\n" +
 	"\aaccount\x18\x01 \x01(\v2\v.v1.AccountR\aaccount\x12*\n" +
-	"\x06amount\x18\x02 \x01(\v2\x12.google.type.MoneyR\x06amount\"N\n" +
+	"\x06amount\x18\x02 \x01(\v2\x12.google.type.MoneyR\x06amount\"j\n" +
 	"\x19RecordTransactionResponse\x121\n" +
-	"\vtransaction\x18\x01 \x01(\v2\x0f.v1.TransactionR\vtransaction\"x\n" +
+	"\vtransaction\x18\x01 \x01(\v2\x0f.v1.TransactionR\vtransaction\x12\x1a\n" +
+	"\breplayed\x18\x02 \x01(\bR\breplayed\"x\n" +
 	"\rAccountFilter\x12#\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x0f.v1.AccountTypeR\x04type\x12\x17\n" +
 	"\x04user\x18\x02 \x01(\tH\x00R\x04user\x88\x01\x01\x12\x17\n" +

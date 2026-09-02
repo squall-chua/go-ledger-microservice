@@ -32,13 +32,13 @@ func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTra
 		return nil, err
 	}
 
-	transaction, err := s.repo.RecordTransaction(ctx, draft)
+	transaction, replayed, err := s.repo.RecordTransaction(ctx, draft)
 	if err != nil {
 		if errors.Is(err, repository.ErrBalanceWouldGoNegative) || errors.Is(err, repository.ErrBackdated) {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
-		if errors.Is(err, repository.ErrIdempotencyKeyExists) {
-			return nil, status.Error(codes.AlreadyExists, "idempotency key already recorded")
+		if errors.Is(err, repository.ErrIdempotencyKeyReused) {
+			return nil, status.Error(codes.AlreadyExists, err.Error())
 		}
 		// A deadlock or a serialization failure wrote nothing and is worth
 		// retrying, so the caller is told that rather than "internal".
@@ -48,7 +48,7 @@ func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTra
 		return nil, status.Errorf(codes.Internal, "failed to record transaction: %v", err)
 	}
 
-	return &pb.RecordTransactionResponse{Transaction: transaction}, nil
+	return &pb.RecordTransactionResponse{Transaction: transaction, Replayed: replayed}, nil
 }
 
 // draftFromRequest validates a record request and turns it into a draft the

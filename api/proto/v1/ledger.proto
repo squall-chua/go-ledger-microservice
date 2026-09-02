@@ -63,6 +63,10 @@ message RecordTransactionRequest {
 
 message RecordTransactionResponse {
   Transaction transaction = 1;
+  // True when this was an Idempotency replay: the key had already recorded
+  // this exact content, so the original Transaction is returned and nothing
+  // new was written.
+  bool replayed = 2;
 }
 
 // An AccountFilter narrows a read to the Accounts whose fields match it

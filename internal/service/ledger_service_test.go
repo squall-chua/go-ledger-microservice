@@ -791,3 +791,156 @@ func TestATransactionThatDipsNegativeAndRecoversIsAccepted(t *testing.T) {
 	assertMoney(t, usd(50, 0), transaction.Postings[3].Balance)
 	assertMoney(t, usd(50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
 }
+
+func TestARetryWithIdenticalContentReplaysTheOriginal(t *testing.T) {
+	h := newHarness(t)
+
+	request := tagged(onDay(1, "retry", "a deposit", opening, cash, usd(100, 0)),
+		map[string]string{"order": "42"})
+	request.VerifyNonNegativeBalances = []*pb.Account{cash}
+
+	first, err := h.record(request)
+	require.NoError(t, err)
+	assert.False(t, first.Replayed, "a first write is not a replay")
+
+	// The same key with the same content, sent again as a timed-out caller
+	// would: the original transaction comes back and no money moves twice.
+	second, err := h.record(request)
+	require.NoError(t, err)
+	assert.True(t, second.Replayed, "a retry with identical content is a replay")
+	assert.Equal(t, first.Transaction.Id, second.Transaction.Id)
+	assert.Equal(t, first.Transaction.Note, second.Transaction.Note)
+	assert.Equal(t, first.Transaction.Metadata, second.Transaction.Metadata)
+	require.Len(t, second.Transaction.Postings, 2)
+	assertMoney(t, usd(100, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+	assert.EqualValues(t, 1, h.transactions(&pb.ListTransactionsRequest{}).TotalCount,
+		"the retry recorded nothing new")
+}
+
+func TestTheSameIdempotencyKeyWithDifferentContentIsRefused(t *testing.T) {
+	h := newHarness(t)
+	original := h.mustRecord(transfer("collide", "a deposit", opening, cash, usd(100, 0)))
+
+	// Every one of these differs from the original in content the fingerprint
+	// covers, so none of them may be handed the original transaction.
+	different := map[string]*pb.RecordTransactionRequest{
+		"a different amount":  transfer("collide", "a deposit", opening, cash, usd(200, 0)),
+		"a different note":    transfer("collide", "a withdrawal", opening, cash, usd(100, 0)),
+		"a different account": transfer("collide", "a deposit", opening, savings, usd(100, 0)),
+		"added metadata": tagged(transfer("collide", "a deposit", opening, cash, usd(100, 0)),
+			map[string]string{"order": "42"}),
+	}
+
+	for name, request := range different {
+		t.Run(name, func(t *testing.T) {
+			_, err := h.record(request)
+			requireCode(t, err, codes.AlreadyExists)
+		})
+	}
+
+	assertMoney(t, usd(100, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+	assert.EqualValues(t, 1, h.transactions(&pb.ListTransactionsRequest{}).TotalCount)
+	assert.Equal(t, original.Id, h.transactions(&pb.ListTransactionsRequest{}).Transactions[0].Id)
+}
+
+// A retry racing the request it retries is the case the fast path cannot catch:
+// neither caller has seen the other's row yet. The unique constraint on the key
+// is what decides it, and the loser replays the winner.
+func TestTwoConcurrentIdenticalRequestsApplyExactlyOnce(t *testing.T) {
+	h := newHarness(t)
+
+	const callers = 8
+	type outcome struct {
+		response *pb.RecordTransactionResponse
+		err      error
+	}
+	outcomes := make(chan outcome, callers)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			response, err := h.record(transfer("racing", "a deposit", opening, cash, usd(100, 0)))
+			outcomes <- outcome{response, err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(outcomes)
+
+	written := 0
+	id := ""
+	for got := range outcomes {
+		require.NoError(t, got.err, "every caller of an identical request is answered")
+		if !got.response.Replayed {
+			written++
+		}
+		if id == "" {
+			id = got.response.Transaction.Id
+		}
+		assert.Equal(t, id, got.response.Transaction.Id, "every caller gets the same transaction back")
+		require.Len(t, got.response.Transaction.Postings, 2)
+	}
+
+	assert.Equal(t, 1, written, "exactly one caller wrote the transaction")
+	assertMoney(t, usd(100, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+	assert.EqualValues(t, 1, h.transactions(&pb.ListTransactionsRequest{}).TotalCount,
+		"the money was applied exactly once")
+}
+
+// A caller who omits the date is stamped at whatever instant the ledger writes,
+// which differs between a request and its retry. The stamp is the ledger's, not
+// content, so it stays out of the fingerprint and the two still match.
+func TestTwoRetriesThatOmitTheDateStillMatch(t *testing.T) {
+	h := newHarness(t)
+
+	request := transfer("no-date", "no date at all", opening, cash, usd(100, 0))
+	first, err := h.record(request)
+	require.NoError(t, err)
+	require.False(t, first.Replayed)
+
+	// Move the clock on as far as the test can: another write to the same
+	// account stamps a later date, so a second stamp could not equal the first.
+	h.mustRecord(transfer("in-between", "elsewhere", opening, cash, usd(1, 0)))
+
+	second, err := h.record(request)
+	require.NoError(t, err)
+	assert.True(t, second.Replayed, "a stamped date does not make a retry a different request")
+	assert.Equal(t, first.Transaction.Id, second.Transaction.Id)
+	assertMoney(t, usd(101, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+}
+
+func TestReorderingThePostingsIsNotAReplay(t *testing.T) {
+	h := newHarness(t)
+
+	request := transfer("order", "a deposit", opening, cash, usd(100, 0))
+	h.mustRecord(request)
+
+	reordered := proto.Clone(request).(*pb.RecordTransactionRequest)
+	reordered.Postings[0], reordered.Postings[1] = reordered.Postings[1], reordered.Postings[0]
+
+	_, err := h.record(reordered)
+	requireCode(t, err, codes.AlreadyExists)
+	assert.EqualValues(t, 1, h.transactions(&pb.ListTransactionsRequest{}).TotalCount)
+}
+
+func TestChangingOnlyTheVerifiedAccountsIsStillAReplay(t *testing.T) {
+	h := newHarness(t)
+
+	request := transfer("verified", "a deposit", opening, cash, usd(100, 0))
+	request.VerifyNonNegativeBalances = []*pb.Account{cash}
+	first := h.mustRecord(request)
+
+	// The accounts to verify are a precondition on the write, not content of
+	// it, so naming different ones is the same transaction.
+	relaxed := proto.Clone(request).(*pb.RecordTransactionRequest)
+	relaxed.VerifyNonNegativeBalances = nil
+
+	replay, err := h.record(relaxed)
+	require.NoError(t, err)
+	assert.True(t, replay.Replayed)
+	assert.Equal(t, first.Id, replay.Transaction.Id)
+	assert.EqualValues(t, 1, h.transactions(&pb.ListTransactionsRequest{}).TotalCount)
+}
