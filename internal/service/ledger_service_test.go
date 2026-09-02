@@ -494,6 +494,25 @@ func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {
 	assertMoney(t, usd(150, 0), balances[0].Balance)
 }
 
+func TestALowerCaseCurrencyFilterFindsTheBalance(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(transfer("key", "a deposit", opening, cash, usd(100, 0)))
+
+	// The write path stores the code upper case, so a filter has to be
+	// normalised the same way or it silently matches nothing.
+	balances := h.balances(&pb.ListAccountBalancesRequest{
+		Account:      exactly(cash),
+		CurrencyCode: "usd",
+	})
+	require.Len(t, balances, 1, "a lower case currency filter finds the balance")
+	assertMoney(t, usd(100, 0), balances[0].Balance)
+
+	register := h.register(&pb.ListPostingsRequest{
+		Filter: &pb.PostingFilter{Account: exactly(cash), CurrencyCode: "usd"},
+	})
+	require.Len(t, register.Postings, 1, "the same holds for the Register")
+}
+
 func TestVerifyNonNegativeBalancesRefusesATransactionThatWouldGoNegative(t *testing.T) {
 	h := newHarness(t)
 	h.mustRecord(transfer("opening", "opening deposit", opening, cash, usd(100, 0)))
