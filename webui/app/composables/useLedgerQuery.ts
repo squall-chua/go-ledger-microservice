@@ -1,12 +1,15 @@
-import { computed, ref, watch, type Ref, type WatchSource } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 
-/** The part of a listing response this module reads for itself. */
-interface ListResponse {
+/**
+ * The part of a listing response this module reads for itself. The balance
+ * response has no `totalCount`, so a response is not required to carry one.
+ */
+interface Counted {
   /** `totalCount` is an int64, so protojson sends it as a string. */
   totalCount?: string | number
 }
 
-export interface LedgerQueryOptions<Res extends ListResponse, Row> {
+export interface LedgerQueryOptions<Res extends object, Row> {
   /**
    * Unique per page. Two pages read `/accounts/balance`, so the path alone
    * would have them share one cache entry.
@@ -18,15 +21,9 @@ export interface LedgerQueryOptions<Res extends ListResponse, Row> {
    * Builds the request. Called afresh for every read, so it sees the filters
    * as they are at that moment rather than as they were at setup.
    */
-  body: (page: number, pageSize: number) => Record<string, unknown>
+  body: (page: number, pageSize: number) => object
   /** Picks the rows out of the response. */
   rows: (response: Res) => Row[] | undefined
-  /**
-   * Sources that start a new read when they change. A page whose controls
-   * fetch on their own passes them here; a page with an Apply button passes
-   * none and calls `apply` instead.
-   */
-  watch?: WatchSource[]
   /** Sizes the request and the range. Only a paginated read needs it. */
   pageSize?: number
 }
@@ -39,12 +36,12 @@ export interface LedgerQueryOptions<Res extends ListResponse, Row> {
  * of them guarded against an overtaken response and two did not, and each of
  * the four said something different when a read failed.
  */
-export const useLedgerQuery = <Res extends ListResponse, Row>(options: LedgerQueryOptions<Res, Row>) => {
+export const useLedgerQuery = <Res extends object, Row>(options: LedgerQueryOptions<Res, Row>) => {
   const { fetchApi } = useLedgerApi()
   const pageSize = options.pageSize ?? 0
   const page = ref(1)
   /** The request the last read sent, so `filtered` describes what is on screen. */
-  const sent = ref<Record<string, unknown>>({})
+  const sent = ref<object>({})
 
   const { data, status, error, refresh } = useAsyncData<Res>(options.key, () => {
     const request = options.body(page.value, pageSize)
@@ -62,8 +59,7 @@ export const useLedgerQuery = <Res extends ListResponse, Row>(options: LedgerQue
     // Without this, coming back to a page shows the rows from the last visit
     // while the fresh ones load. Stale rows under a fresh page number are the
     // same wrongness one navigation later.
-    getCachedData: () => undefined,
-    watch: options.watch
+    getCachedData: () => undefined
   })
 
   // Turning the page is a read. `apply` resets the page and reads once: doing
@@ -87,7 +83,7 @@ export const useLedgerQuery = <Res extends ListResponse, Row>(options: LedgerQue
   // back to Res on its own, so read the response through the shape asked for.
   const response = computed(() => data.value as Res | null)
   const rows = computed(() => (response.value ? options.rows(response.value) ?? [] : []))
-  const totalCount = computed(() => Number(response.value?.totalCount ?? 0))
+  const totalCount = computed(() => Number((response.value as Counted | null)?.totalCount ?? 0))
 
   /** One-based, inclusive, and both zero on an empty read. */
   const range = computed(() => ({
@@ -102,7 +98,7 @@ export const useLedgerQuery = <Res extends ListResponse, Row>(options: LedgerQue
    * filter under `filter`; the balance request has no such key and neither of
    * its callers reads this.
    */
-  const filtered = computed(() => sent.value.filter !== undefined)
+  const filtered = computed(() => 'filter' in sent.value)
 
   const loading = computed(() => status.value === 'idle' || status.value === 'pending')
 

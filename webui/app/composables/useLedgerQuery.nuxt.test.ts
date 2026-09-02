@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { defineComponent, h, nextTick, ref } from 'vue'
+import { defineComponent, h, nextTick } from 'vue'
 import { mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
 import { readBody } from 'h3'
 import { useLedgerQuery } from './useLedgerQuery'
@@ -61,15 +61,11 @@ beforeEach(() => {
 
 describe('useLedgerQuery', () => {
   it('drops the rows of a read that a newer one overtook', async () => {
-    const currency = ref('USD')
-    const query = await mountQuery({
-      body: () => ({ filter: { currency: currency.value } }),
-      watch: [currency]
-    })
+    const query = await mountQuery({ body: () => ({ filter: {} }) })
 
     expect(pending).toHaveLength(1)
 
-    currency.value = 'EUR'
+    query.refresh()
     await settle()
     expect(pending).toHaveLength(2)
 
@@ -103,17 +99,13 @@ describe('useLedgerQuery', () => {
   })
 
   it('reports a failed read and leaves no stale rows behind', async () => {
-    const currency = ref('USD')
-    const query = await mountQuery({
-      body: () => ({ filter: { currency: currency.value } }),
-      watch: [currency]
-    })
+    const query = await mountQuery({ body: () => ({ filter: {} }) })
 
     pending[0]!.resolve(rowsFor('first'))
     await settle()
     expect(query.rows.value).toEqual([{ id: 'first' }])
 
-    currency.value = 'EUR'
+    query.refresh()
     await settle()
     pending[1]!.resolve(createError({ statusCode: 500, statusMessage: 'ledger is down' }))
     await settle()
