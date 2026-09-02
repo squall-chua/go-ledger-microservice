@@ -153,6 +153,7 @@ type Posting struct {
 	Amount        *money.Money           `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	Balance       *money.Money           `protobuf:"bytes,5,opt,name=balance,proto3" json:"balance,omitempty"` // Running balance of the Account after this leg.
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Date          *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=date,proto3" json:"date,omitempty"` // Transaction date: supplied by the caller or stamped by the ledger.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -225,6 +226,13 @@ func (x *Posting) GetBalance() *money.Money {
 func (x *Posting) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Posting) GetDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Date
 	}
 	return nil
 }
@@ -1123,7 +1131,7 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\aAccount\x12#\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x0f.v1.AccountTypeR\x04type\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\"\xfc\x01\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"\xac\x02\n" +
 	"\aPosting\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
 	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12%\n" +
@@ -1131,7 +1139,8 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\x06amount\x18\x04 \x01(\v2\x12.google.type.MoneyR\x06amount\x12,\n" +
 	"\abalance\x18\x05 \x01(\v2\x12.google.type.MoneyR\abalance\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xe6\x02\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12.\n" +
+	"\x04date\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x04date\"\xe6\x02\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12.\n" +
@@ -1276,47 +1285,48 @@ var file_api_proto_v1_ledger_proto_depIdxs = []int32{
 	21, // 2: v1.Posting.amount:type_name -> google.type.Money
 	21, // 3: v1.Posting.balance:type_name -> google.type.Money
 	22, // 4: v1.Posting.created_at:type_name -> google.protobuf.Timestamp
-	22, // 5: v1.Transaction.date:type_name -> google.protobuf.Timestamp
-	16, // 6: v1.Transaction.metadata:type_name -> v1.Transaction.MetadataEntry
-	2,  // 7: v1.Transaction.postings:type_name -> v1.Posting
-	22, // 8: v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	22, // 9: v1.RecordTransactionRequest.date:type_name -> google.protobuf.Timestamp
-	17, // 10: v1.RecordTransactionRequest.metadata:type_name -> v1.RecordTransactionRequest.MetadataEntry
-	18, // 11: v1.RecordTransactionRequest.postings:type_name -> v1.RecordTransactionRequest.PostingInput
-	1,  // 12: v1.RecordTransactionRequest.verify_non_negative_balances:type_name -> v1.Account
-	3,  // 13: v1.RecordTransactionResponse.transaction:type_name -> v1.Transaction
-	0,  // 14: v1.AccountFilter.type:type_name -> v1.AccountType
-	6,  // 15: v1.ListAccountBalancesRequest.account:type_name -> v1.AccountFilter
-	9,  // 16: v1.ListAccountBalancesResponse.balances:type_name -> v1.AccountBalance
-	1,  // 17: v1.AccountBalance.account:type_name -> v1.Account
-	21, // 18: v1.AccountBalance.balance:type_name -> google.type.Money
-	22, // 19: v1.AccountBalance.updated_at:type_name -> google.protobuf.Timestamp
-	22, // 20: v1.TransactionFilter.start_date:type_name -> google.protobuf.Timestamp
-	22, // 21: v1.TransactionFilter.end_date:type_name -> google.protobuf.Timestamp
-	19, // 22: v1.TransactionFilter.metadata:type_name -> v1.TransactionFilter.MetadataEntry
-	10, // 23: v1.ListTransactionsRequest.filter:type_name -> v1.TransactionFilter
-	3,  // 24: v1.ListTransactionsResponse.transactions:type_name -> v1.Transaction
-	6,  // 25: v1.PostingFilter.account:type_name -> v1.AccountFilter
-	22, // 26: v1.PostingFilter.start_date:type_name -> google.protobuf.Timestamp
-	22, // 27: v1.PostingFilter.end_date:type_name -> google.protobuf.Timestamp
-	20, // 28: v1.PostingFilter.metadata:type_name -> v1.PostingFilter.MetadataEntry
-	13, // 29: v1.ListPostingsRequest.filter:type_name -> v1.PostingFilter
-	2,  // 30: v1.ListPostingsResponse.postings:type_name -> v1.Posting
-	1,  // 31: v1.RecordTransactionRequest.PostingInput.account:type_name -> v1.Account
-	21, // 32: v1.RecordTransactionRequest.PostingInput.amount:type_name -> google.type.Money
-	4,  // 33: v1.LedgerService.RecordTransaction:input_type -> v1.RecordTransactionRequest
-	7,  // 34: v1.LedgerService.ListAccountBalances:input_type -> v1.ListAccountBalancesRequest
-	11, // 35: v1.LedgerService.ListTransactions:input_type -> v1.ListTransactionsRequest
-	14, // 36: v1.LedgerService.ListPostings:input_type -> v1.ListPostingsRequest
-	5,  // 37: v1.LedgerService.RecordTransaction:output_type -> v1.RecordTransactionResponse
-	8,  // 38: v1.LedgerService.ListAccountBalances:output_type -> v1.ListAccountBalancesResponse
-	12, // 39: v1.LedgerService.ListTransactions:output_type -> v1.ListTransactionsResponse
-	15, // 40: v1.LedgerService.ListPostings:output_type -> v1.ListPostingsResponse
-	37, // [37:41] is the sub-list for method output_type
-	33, // [33:37] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	22, // 5: v1.Posting.date:type_name -> google.protobuf.Timestamp
+	22, // 6: v1.Transaction.date:type_name -> google.protobuf.Timestamp
+	16, // 7: v1.Transaction.metadata:type_name -> v1.Transaction.MetadataEntry
+	2,  // 8: v1.Transaction.postings:type_name -> v1.Posting
+	22, // 9: v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	22, // 10: v1.RecordTransactionRequest.date:type_name -> google.protobuf.Timestamp
+	17, // 11: v1.RecordTransactionRequest.metadata:type_name -> v1.RecordTransactionRequest.MetadataEntry
+	18, // 12: v1.RecordTransactionRequest.postings:type_name -> v1.RecordTransactionRequest.PostingInput
+	1,  // 13: v1.RecordTransactionRequest.verify_non_negative_balances:type_name -> v1.Account
+	3,  // 14: v1.RecordTransactionResponse.transaction:type_name -> v1.Transaction
+	0,  // 15: v1.AccountFilter.type:type_name -> v1.AccountType
+	6,  // 16: v1.ListAccountBalancesRequest.account:type_name -> v1.AccountFilter
+	9,  // 17: v1.ListAccountBalancesResponse.balances:type_name -> v1.AccountBalance
+	1,  // 18: v1.AccountBalance.account:type_name -> v1.Account
+	21, // 19: v1.AccountBalance.balance:type_name -> google.type.Money
+	22, // 20: v1.AccountBalance.updated_at:type_name -> google.protobuf.Timestamp
+	22, // 21: v1.TransactionFilter.start_date:type_name -> google.protobuf.Timestamp
+	22, // 22: v1.TransactionFilter.end_date:type_name -> google.protobuf.Timestamp
+	19, // 23: v1.TransactionFilter.metadata:type_name -> v1.TransactionFilter.MetadataEntry
+	10, // 24: v1.ListTransactionsRequest.filter:type_name -> v1.TransactionFilter
+	3,  // 25: v1.ListTransactionsResponse.transactions:type_name -> v1.Transaction
+	6,  // 26: v1.PostingFilter.account:type_name -> v1.AccountFilter
+	22, // 27: v1.PostingFilter.start_date:type_name -> google.protobuf.Timestamp
+	22, // 28: v1.PostingFilter.end_date:type_name -> google.protobuf.Timestamp
+	20, // 29: v1.PostingFilter.metadata:type_name -> v1.PostingFilter.MetadataEntry
+	13, // 30: v1.ListPostingsRequest.filter:type_name -> v1.PostingFilter
+	2,  // 31: v1.ListPostingsResponse.postings:type_name -> v1.Posting
+	1,  // 32: v1.RecordTransactionRequest.PostingInput.account:type_name -> v1.Account
+	21, // 33: v1.RecordTransactionRequest.PostingInput.amount:type_name -> google.type.Money
+	4,  // 34: v1.LedgerService.RecordTransaction:input_type -> v1.RecordTransactionRequest
+	7,  // 35: v1.LedgerService.ListAccountBalances:input_type -> v1.ListAccountBalancesRequest
+	11, // 36: v1.LedgerService.ListTransactions:input_type -> v1.ListTransactionsRequest
+	14, // 37: v1.LedgerService.ListPostings:input_type -> v1.ListPostingsRequest
+	5,  // 38: v1.LedgerService.RecordTransaction:output_type -> v1.RecordTransactionResponse
+	8,  // 39: v1.LedgerService.ListAccountBalances:output_type -> v1.ListAccountBalancesResponse
+	12, // 40: v1.LedgerService.ListTransactions:output_type -> v1.ListTransactionsResponse
+	15, // 41: v1.LedgerService.ListPostings:output_type -> v1.ListPostingsResponse
+	38, // [38:42] is the sub-list for method output_type
+	34, // [34:38] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_v1_ledger_proto_init() }

@@ -34,6 +34,7 @@ message Posting {
   google.type.Money amount = 4;
   google.type.Money balance = 5; // Running balance of the Account after this leg.
   google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp date = 7; // Transaction date: supplied by the caller or stamped by the ledger.
 }
 
 message Transaction {

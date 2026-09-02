@@ -388,6 +388,11 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Transaction date: supplied by the caller or stamped by the ledger."
         }
       }
     },

@@ -242,6 +242,43 @@ func TestMetadataAndSuppliedDateRoundTrip(t *testing.T) {
 	assert.Empty(t, plain.Metadata)
 }
 
+func TestEveryPostingCarriesTheTransactionDate(t *testing.T) {
+	h := newHarness(t)
+	recorded := h.mustRecord(onDay(1, "key-1", "opening deposit", opening, cash, usd(100, 0)))
+
+	for _, posting := range recorded.Postings {
+		assert.True(t, day(1).Equal(posting.Date.AsTime()), "RecordTransaction response")
+	}
+
+	listed := h.transactions(&pb.ListTransactionsRequest{}).Transactions[0]
+	for _, posting := range listed.Postings {
+		assert.True(t, day(1).Equal(posting.Date.AsTime()), "ListTransactions")
+	}
+
+	register := h.register(&pb.ListPostingsRequest{Filter: &pb.PostingFilter{Account: exactly(cash)}})
+	require.Len(t, register.Postings, 1)
+	assert.True(t, day(1).Equal(register.Postings[0].Date.AsTime()), "ListPostings")
+}
+
+// TestASuppliedDateDiffersFromCreatedAt pins the distinction CONTEXT.md draws
+// between the Transaction date and created_at: a Posting carries both, and
+// they are not the same field wearing two names.
+func TestASuppliedDateDiffersFromCreatedAt(t *testing.T) {
+	h := newHarness(t)
+
+	// Both accounts are brand new, so a date years old is a supplied date, not
+	// a backdated one: nothing precedes this transaction.
+	old := transfer("old", "an old event", opening, cash, usd(10, 0))
+	suppliedDate := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	old.Date = timestamppb.New(suppliedDate)
+
+	transaction := h.mustRecord(old)
+	for _, posting := range transaction.Postings {
+		assert.True(t, suppliedDate.Equal(posting.Date.AsTime()), "posting date is the supplied date")
+		assert.WithinDuration(t, time.Now(), posting.CreatedAt.AsTime(), time.Minute, "created_at is roughly now")
+	}
+}
+
 func TestListTransactionsPagesNewestFirstWithATotalCount(t *testing.T) {
 	h := newHarness(t)
 	h.recordDays(3, opening, cash)

@@ -305,6 +305,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			Amount:    moneyfmt.FromDecimal(draftPosting.Amount, draftPosting.CurrencyCode),
 			Balance:   moneyfmt.FromDecimal(balance, draftPosting.CurrencyCode),
 			CreatedAt: timestamppb.New(postingCreatedAt),
+			Date:      timestamppb.New(date),
 		})
 	}
 
@@ -411,7 +412,7 @@ func (r *Repository) ListTransactions(ctx context.Context, filter TransactionFil
 	query := `
 		SELECT t.id, t.idempotency_key, t.date, t.note, t.metadata, t.created_at,
 		       p.id, p.account_type, p.account_user, p.account_name, p.currency_code,
-		       p.amount, p.balance, p.created_at
+		       p.amount, p.balance, p.created_at, p.date
 		FROM (
 			SELECT id, idempotency_key, date, note, metadata, created_at
 			FROM transactions` + where.clause() + `
@@ -484,7 +485,7 @@ func (r *Repository) ListRegister(ctx context.Context, filter RegisterFilter, pa
 	direction := page.direction()
 	query := `
 		SELECT transaction_id, id, account_type, account_user, account_name,
-		       currency_code, amount, balance, created_at
+		       currency_code, amount, balance, created_at, date
 		FROM postings` + where.clause() + `
 		ORDER BY date ` + direction + ", id " + direction +
 		" LIMIT " + where.bind(limit) + " OFFSET " + where.bind(offset)
@@ -517,13 +518,14 @@ type postingRow struct {
 	amount       decimal.Decimal
 	balance      decimal.Decimal
 	createdAt    time.Time
+	date         time.Time
 }
 
 // fields are the scan targets for `id, account_type, account_user,
-// account_name, currency_code, amount, balance, created_at`, in that order.
+// account_name, currency_code, amount, balance, created_at, date`, in that order.
 func (row *postingRow) fields() []any {
 	return []any{&row.id, &row.accountType, &row.accountUser, &row.accountName,
-		&row.currencyCode, &row.amount, &row.balance, &row.createdAt}
+		&row.currencyCode, &row.amount, &row.balance, &row.createdAt, &row.date}
 }
 
 func (row *postingRow) proto(transactionID string) *pb.Posting {
@@ -538,6 +540,7 @@ func (row *postingRow) proto(transactionID string) *pb.Posting {
 		Amount:    moneyfmt.FromDecimal(row.amount, row.currencyCode),
 		Balance:   moneyfmt.FromDecimal(row.balance, row.currencyCode),
 		CreatedAt: timestamppb.New(row.createdAt),
+		Date:      timestamppb.New(row.date),
 	}
 }
 
