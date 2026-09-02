@@ -278,6 +278,12 @@ func parsePosting(arg string) (*pb.RecordTransactionRequest_PostingInput, error)
 	if err != nil {
 		return nil, fmt.Errorf("posting %q has a malformed amount %q", arg, amount)
 	}
+	// Nine decimal places is all money carries, so a tenth would be dropped
+	// without saying so. Truncating the money an operator typed is not the
+	// CLI's call to make quietly.
+	if !value.Truncate(9).Equal(value) {
+		return nil, fmt.Errorf("posting %q has an amount %q with more than nine decimal places, which is all the ledger records", arg, amount)
+	}
 	converted, err := moneyfmt.FromDecimal(value, currency)
 	if err != nil {
 		return nil, fmt.Errorf("posting %q has an amount %q out of range: %w", arg, amount, err)

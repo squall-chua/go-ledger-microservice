@@ -113,15 +113,27 @@ func TestParseAccount(t *testing.T) {
 }
 
 // An amount is refused at the boundary rather than quietly changed: the integer
-// part has to fit money's int64 units. 1e20 used to wrap to 7766279631452241919
-// and be recorded.
+// part has to fit money's int64 units, and nine decimal places is all the wire
+// carries. 1e20 used to wrap to 7766279631452241919 and be recorded.
 func TestParsePostingRefusesAnAmountItCannotRecord(t *testing.T) {
 	for _, arg := range []string{
 		"ASSETS:alice:Checking:99999999999999999999+USD",
 		"ASSETS:alice:Checking:-99999999999999999999+USD",
+		"ASSETS:alice:Checking:0.1234567891+USD",
 	} {
 		_, err := parsePosting(arg)
 		require.Error(t, err, arg)
 		assert.Contains(t, err.Error(), arg)
+	}
+
+	// Nine decimal places is exactly what is recorded, and a tenth digit that is
+	// a zero loses nothing.
+	for arg, nanos := range map[string]int32{
+		"ASSETS:alice:Checking:0.123456789+USD":  123456789,
+		"ASSETS:alice:Checking:0.1234567890+USD": 123456789,
+	} {
+		posting, err := parsePosting(arg)
+		require.NoError(t, err, arg)
+		assert.Equal(t, nanos, posting.Amount.Nanos, arg)
 	}
 }
