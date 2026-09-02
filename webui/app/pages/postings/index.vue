@@ -177,7 +177,6 @@
               <span class="flex items-center gap-2 font-medium text-gray-900 dark:text-gray-100 font-mono">
                 <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ row.account.type }}</span>
                 <span>{{ row.account.user }}</span>
-                <span class="text-gray-500 dark:text-gray-400">/</span>
                 <span>{{ row.account.name }}</span>
               </span>
             </div>
