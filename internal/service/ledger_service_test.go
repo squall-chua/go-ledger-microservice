@@ -304,8 +304,16 @@ func TestListTransactionsPagesNewestFirstWithATotalCount(t *testing.T) {
 	assert.EqualValues(t, 3, next.TotalCount)
 	assert.Equal(t, []string{"note 1"}, notesOf(next.Transactions))
 
-	ascending := h.transactions(&pb.ListTransactionsRequest{OrderByAscending: true})
-	assert.Equal(t, []string{"note 1", "note 2", "note 3"}, notesOf(ascending.Transactions))
+	// Ascending walks the same rows from the other end, and pages the same way:
+	// the second page picks up where the first left off rather than restarting.
+	ascending := h.transactions(&pb.ListTransactionsRequest{PageSize: 2, OrderByAscending: true})
+	assert.EqualValues(t, 3, ascending.TotalCount)
+	assert.Equal(t, []string{"note 1", "note 2"}, notesOf(ascending.Transactions), "oldest first when asked")
+
+	nextAscending := h.transactions(&pb.ListTransactionsRequest{
+		PageSize: 2, PageNumber: 2, OrderByAscending: true})
+	assert.EqualValues(t, 3, nextAscending.TotalCount)
+	assert.Equal(t, []string{"note 3"}, notesOf(nextAscending.Transactions))
 }
 
 func TestListTransactionsUsesAHalfOpenDateRange(t *testing.T) {
@@ -339,17 +347,118 @@ func TestListTransactionsFindsOneTransactionByItsIdempotencyKey(t *testing.T) {
 	assert.Empty(t, unknown.Transactions)
 }
 
-func TestListTransactionsPageSizeDefaultsToTen(t *testing.T) {
+func TestPageSizeDefaultsToTenAndIsClampedAtAHundred(t *testing.T) {
 	h := newHarness(t)
-	h.recordDays(11, opening, cash)
+	// A hundred and one transactions, two hundred and two postings: with fewer
+	// rows than the maximum a clamped page and an unclamped one hold the same
+	// thing, so the clamp would pass this test even if it were gone.
+	h.recordDays(101, opening, cash)
 
 	page := h.transactions(&pb.ListTransactionsRequest{})
 	assert.Len(t, page.Transactions, 10, "a caller that asks for no page size gets ten")
-	assert.EqualValues(t, 11, page.TotalCount)
+	assert.EqualValues(t, 101, page.TotalCount)
 
-	// A caller asking for more than the maximum is clamped rather than refused;
-	// the clamp itself is pinned in the repository's page bounds.
-	assert.Len(t, h.transactions(&pb.ListTransactionsRequest{PageSize: 1000}).Transactions, 11)
+	// A caller asking for more than the maximum is clamped rather than refused.
+	clamped := h.transactions(&pb.ListTransactionsRequest{PageSize: 1000})
+	assert.Len(t, clamped.Transactions, 100, "a page of transactions stops at a hundred")
+	assert.EqualValues(t, 101, clamped.TotalCount, "the total still counts every match")
+
+	// The register is bounded by the same page, and never returns the lot.
+	register := h.register(&pb.ListPostingsRequest{})
+	assert.Len(t, register.Postings, 10, "a caller that asks for no page size gets ten")
+	assert.EqualValues(t, 202, register.TotalCount)
+
+	clampedRegister := h.register(&pb.ListPostingsRequest{PageSize: 1000})
+	assert.Len(t, clampedRegister.Postings, 100, "a page of postings stops at a hundred")
+	assert.EqualValues(t, 202, clampedRegister.TotalCount)
+}
+
+// A page number past the end is an empty page however far past it is: the
+// offset it works out to is computed in int64, so a caller-supplied page number
+// cannot overflow into the negative OFFSET Postgres refuses.
+func TestAPageNumberPastTheEndIsAnEmptyPage(t *testing.T) {
+	h := newHarness(t)
+	h.recordDays(3, opening, cash)
+
+	for _, number := range []int32{4, 33554432, 2147483647} {
+		listed, err := h.client.ListTransactions(h.ctx,
+			&pb.ListTransactionsRequest{PageSize: 100, PageNumber: number})
+		require.NoError(t, err, "page number %d", number)
+		assert.Empty(t, listed.Transactions, "page number %d holds no transaction", number)
+		assert.EqualValues(t, 3, listed.TotalCount, "page number %d still counts every match", number)
+
+		register, err := h.client.ListPostings(h.ctx,
+			&pb.ListPostingsRequest{PageSize: 100, PageNumber: number})
+		require.NoError(t, err, "page number %d", number)
+		assert.Empty(t, register.Postings, "page number %d holds no posting", number)
+		assert.EqualValues(t, 6, register.TotalCount, "page number %d still counts every match", number)
+	}
+}
+
+// Transactions may share a transaction date, so both listings break the tie on
+// id. Without that tie-break the rows a page holds are whatever the planner
+// chose that time, and walking the pages repeats one row while skipping another.
+func TestPagingThroughTiedDatesReturnsEveryRowOnce(t *testing.T) {
+	h := newHarness(t)
+	for number := 1; number <= 5; number++ {
+		tied := transfer(fmt.Sprintf("tied-%d", number), fmt.Sprintf("note %d", number),
+			opening, cash, usd(int64(number), 0))
+		tied.Date = timestamppb.New(day(1))
+		h.mustRecord(tied)
+	}
+
+	for _, ascending := range []bool{false, true} {
+		walked := []string{}
+		for number := int32(1); number <= 5; number++ {
+			page := h.transactions(&pb.ListTransactionsRequest{
+				PageSize: 2, PageNumber: number, OrderByAscending: ascending})
+			assert.EqualValues(t, 5, page.TotalCount)
+			walked = append(walked, notesOf(page.Transactions)...)
+		}
+		assert.ElementsMatch(t,
+			[]string{"note 1", "note 2", "note 3", "note 4", "note 5"}, walked,
+			"every transaction sharing the date is on exactly one page (ascending %v)", ascending)
+	}
+
+	seen := map[string]bool{}
+	walked := 0
+	for number := int32(1); number <= 5; number++ {
+		page := h.register(&pb.ListPostingsRequest{
+			Filter: &pb.PostingFilter{Account: exactly(cash)}, PageSize: 2, PageNumber: number})
+		assert.EqualValues(t, 5, page.TotalCount)
+		for _, posting := range page.Postings {
+			seen[posting.Id] = true
+			walked++
+		}
+	}
+	assert.Equal(t, 5, walked, "the register hands out one page each and then stops")
+	assert.Len(t, seen, 5, "no posting sharing the date is paged twice")
+}
+
+// The transaction listing counts transactions, not postings: the page is taken
+// over transactions and joined to their postings afterwards, so a transaction
+// carrying more postings than another must not weigh more in either number.
+func TestTheTotalCountIsUnmovedByDifferingPostingCounts(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(onDayInto(1, "two", "note 1", opening, cash))
+	h.mustRecord(onDayInto(2, "three", "note 2", opening, cash, savings))
+	h.mustRecord(onDayInto(3, "four", "note 3", opening, cash, savings, rent))
+
+	all := h.transactions(&pb.ListTransactionsRequest{})
+	assert.EqualValues(t, 3, all.TotalCount, "three transactions, whatever they carry")
+	assert.Equal(t, []int{4, 3, 2}, postingCountsOf(all.Transactions), "each keeps all its postings")
+
+	// A page of two is two whole transactions, seven postings between them.
+	page := h.transactions(&pb.ListTransactionsRequest{PageSize: 2})
+	assert.EqualValues(t, 3, page.TotalCount)
+	assert.Equal(t, []int{4, 3}, postingCountsOf(page.Transactions),
+		"a long transaction does not eat into the page size")
+	next := h.transactions(&pb.ListTransactionsRequest{PageSize: 2, PageNumber: 2})
+	assert.EqualValues(t, 3, next.TotalCount)
+	assert.Equal(t, []int{2}, postingCountsOf(next.Transactions))
+
+	// The register counts postings, which is the other number: 2 + 3 + 4.
+	assert.EqualValues(t, 9, h.register(&pb.ListPostingsRequest{}).TotalCount)
 }
 
 func TestListTransactionsFiltersByExactMetadataPairs(t *testing.T) {
@@ -530,6 +639,21 @@ func onDay(number int, key, note string, from, to *pb.Account, amount *money.Mon
 	return request
 }
 
+// onDayInto is a transaction with more postings than the usual two: one unit
+// out of `from` for each account in `to`, and one unit into each of them.
+func onDayInto(number int, key, note string, from *pb.Account, to ...*pb.Account) *pb.RecordTransactionRequest {
+	postings := []*pb.RecordTransactionRequest_PostingInput{posting(from, usd(int64(-len(to)), 0))}
+	for _, into := range to {
+		postings = append(postings, posting(into, usd(1, 0)))
+	}
+	return &pb.RecordTransactionRequest{
+		IdempotencyKey: key,
+		Note:           note,
+		Date:           timestamppb.New(day(number)),
+		Postings:       postings,
+	}
+}
+
 // tagged attaches metadata to a transaction about to be recorded.
 func tagged(request *pb.RecordTransactionRequest, metadata map[string]string) *pb.RecordTransactionRequest {
 	request.Metadata = metadata
@@ -553,6 +677,14 @@ func notesOf(transactions []*pb.Transaction) []string {
 		notes[i] = transaction.Note
 	}
 	return notes
+}
+
+func postingCountsOf(transactions []*pb.Transaction) []int {
+	counts := make([]int, len(transactions))
+	for i, transaction := range transactions {
+		counts[i] = len(transaction.Postings)
+	}
+	return counts
 }
 
 func assertMoney(t *testing.T, want, got *money.Money, msgAndArgs ...any) {

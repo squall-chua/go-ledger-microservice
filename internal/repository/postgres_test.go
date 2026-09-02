@@ -27,14 +27,16 @@ func TestPageBounds(t *testing.T) {
 	cases := map[string]struct {
 		page   Page
 		limit  int32
-		offset int32
+		offset int64
 	}{
-		"an unasked-for size defaults to ten": {Page{}, 10, 0},
-		"a negative size defaults to ten":     {Page{Size: -5}, 10, 0},
-		"a size over the maximum is clamped":  {Page{Size: 1000}, 100, 0},
-		"the maximum itself is kept":          {Page{Size: 100}, 100, 0},
-		"page numbers are one-based":          {Page{Size: 20, Number: 3}, 20, 40},
-		"a page below one is the first page":  {Page{Size: 20, Number: 0}, 20, 0},
+		"an unasked-for size defaults to ten":    {Page{}, 10, 0},
+		"a negative size defaults to ten":        {Page{Size: -5}, 10, 0},
+		"a size over the maximum is clamped":     {Page{Size: 1000}, 100, 0},
+		"the maximum itself is kept":             {Page{Size: 100}, 100, 0},
+		"page numbers are one-based":             {Page{Size: 20, Number: 3}, 20, 40},
+		"a page below one is the first page":     {Page{Size: 20, Number: 0}, 20, 0},
+		"a huge page number stays positive":      {Page{Size: 100, Number: 33554432}, 100, 3355443100},
+		"the largest page number stays positive": {Page{Size: 100, Number: 2147483647}, 100, 214748364600},
 	}
 
 	for name, testCase := range cases {

@@ -126,8 +126,12 @@ type Page struct {
 }
 
 // bounds are the page size and the row offset it starts at, with the size
-// defaulted and clamped so no caller can ask for the whole table.
-func (p Page) bounds() (limit, offset int32) {
+// defaulted and clamped so no caller can ask for the whole table. The offset is
+// an int64: the page number is caller-supplied and only floored at one, so
+// multiplying it by the size in int32 wraps negative, and Postgres refuses a
+// negative OFFSET. A page past the end is an empty page instead, which is what
+// a merely too-large page number already gets.
+func (p Page) bounds() (limit int32, offset int64) {
 	limit = p.Size
 	switch {
 	case limit <= 0:
@@ -139,7 +143,7 @@ func (p Page) bounds() (limit, offset int32) {
 	if number < 1 {
 		number = 1
 	}
-	return limit, (number - 1) * limit
+	return limit, int64(number-1) * int64(limit)
 }
 
 func (p Page) direction() string {
