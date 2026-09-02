@@ -3,10 +3,10 @@
     <div class="flex justify-between items-center mb-6">
       <div>
         <h1 class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-          Transaction Register
+          Transactions
         </h1>
         <p class="text-gray-500 mt-1">
-          Chronological history of all ledger entries.
+          Every transaction recorded in the book, newest first.
         </p>
       </div>
       <div class="flex gap-3">
@@ -42,25 +42,21 @@
       v-show="isFiltersOpen"
       class="mb-8 shadow-sm border-gray-200 dark:border-gray-800"
     >
-      <div class="grid grid-cols-4 gap-4 items-end">
+      <div class="grid grid-cols-3 gap-4 items-end">
         <UFormField label="Start Date">
           <UInput
-            v-model="filters.start_date"
+            v-model="filters.startDate"
             type="datetime-local"
             class="w-full"
           />
         </UFormField>
-        <UFormField label="End Date">
+        <UFormField
+          label="End Date"
+          help="Excluded from the range."
+        >
           <UInput
-            v-model="filters.end_date"
+            v-model="filters.endDate"
             type="datetime-local"
-            class="w-full"
-          />
-        </UFormField>
-        <UFormField label="Currency">
-          <USelect
-            v-model="filters.currency"
-            :items="CURRENCY_OPTIONS"
             class="w-full"
           />
         </UFormField>
@@ -68,6 +64,36 @@
           <USelect
             v-model="filters.sort"
             :items="sortOptions"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField
+          label="Idempotency Key"
+          help="Matches at most one transaction."
+        >
+          <UInput
+            v-model="filters.idempotencyKey"
+            placeholder="The key the write was sent with"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField
+          label="Metadata Key"
+          help="Blank filters nothing."
+        >
+          <UInput
+            v-model="filters.metadataKey"
+            placeholder="order_id"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField
+          label="Metadata Value"
+          help="Matched exactly, with the key."
+        >
+          <UInput
+            v-model="filters.metadataValue"
+            placeholder="A-42"
             class="w-full"
           />
         </UFormField>
@@ -112,10 +138,10 @@
           class="text-4xl text-gray-400 mb-2"
         />
         <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-          No transactions recorded
+          {{ wasFiltered ? 'No transactions match these filters' : 'No transactions recorded' }}
         </h3>
         <p class="text-gray-500">
-          Your ledger history is empty.
+          {{ wasFiltered ? 'Nothing on the ledger matches. An idempotency key with no match means that write never landed.' : 'Your ledger history is empty.' }}
         </p>
       </div>
 
@@ -131,11 +157,24 @@
           <div class="flex justify-between items-start mb-2">
             <div class="flex items-center gap-3">
               <span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-md text-gray-600 dark:text-gray-400">
-                {{ new Date(tx.date || tx.createdAt).toLocaleString() }}
+                {{ new Date(tx.date).toLocaleString() }}
               </span>
               <span class="font-medium text-gray-900 dark:text-gray-100">{{ tx.note }}</span>
             </div>
             <span class="text-xs text-gray-400 font-mono">{{ tx.id?.substring(0, 8) }}</span>
+          </div>
+
+          <div
+            v-if="Object.keys(tx.metadata || {}).length > 0"
+            class="flex flex-wrap gap-2 mt-2"
+          >
+            <span
+              v-for="(value, key) in tx.metadata"
+              :key="key"
+              class="text-xs font-mono px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-gray-600 dark:text-gray-400"
+            >
+              {{ key }} = {{ value }}
+            </span>
           </div>
 
           <div class="space-y-1 mt-3 pl-2 sm:pl-10">
@@ -144,15 +183,17 @@
               :key="posting.id"
               class="flex justify-between text-sm"
             >
-              <span class="text-gray-600 dark:text-gray-300 font-mono">
-                {{ formatAccountType(posting.account?.type) }}:{{ posting.account?.user || '*' }}:{{ posting.account?.name || '*' }}
+              <span class="text-gray-600 dark:text-gray-300 font-mono flex flex-wrap gap-x-3">
+                <span class="text-gray-400 dark:text-gray-500">{{ renderAccount(posting.account).type }}</span>
+                <span>{{ renderAccount(posting.account).user }}</span>
+                <span>{{ renderAccount(posting.account).name }}</span>
               </span>
               <div class="flex items-center gap-4">
-                <span :class="['font-medium w-24 text-right', isNegative(posting.amount?.units) ? 'text-red-500' : 'text-emerald-500']">
-                  {{ formatCurrency(posting.amount?.units, posting.amount?.currencyCode) }}
+                <span :class="['font-medium w-24 text-right', isNegativeMoney(posting.amount) ? 'text-red-500' : 'text-emerald-500']">
+                  {{ formatMoney(posting.amount) }}
                 </span>
                 <span class="text-gray-400 w-32 text-right hidden sm:inline-block">
-                  (= {{ formatCurrency(posting.balance?.units, posting.balance?.currencyCode) }})
+                  (= {{ formatMoney(posting.balance) }})
                 </span>
               </div>
             </div>
@@ -166,11 +207,11 @@
         class="p-4 border-t border-gray-200 dark:border-gray-800 flex justify-between items-center"
       >
         <span class="text-sm text-gray-500">
-          Showing {{ (page - 1) * pageCount + 1 }} to {{ Math.min(page * pageCount, totalCount) }} of {{ totalCount }} transactions
+          Showing {{ (page - 1) * pageSize + 1 }} to {{ Math.min(page * pageSize, totalCount) }} of {{ totalCount }} transactions
         </span>
         <UPagination
-          v-model="page"
-          :page-count="pageCount"
+          v-model:page="page"
+          :items-per-page="pageSize"
           :total="totalCount"
         />
       </div>
@@ -180,26 +221,34 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
+import type { ListTransactionsResponse, Transaction } from '~/types/ledger'
+import type { TransactionFilterControls } from '~/utils/transactionFilters'
 
 const { fetchApi } = useLedgerApi()
 const loading = ref(true)
-const transactions = ref<any[]>([])
+const transactions = ref<Transaction[]>([])
 const page = ref(1)
-const pageCount = 50
+const pageSize = 50
 const totalCount = ref(0)
 const isFiltersOpen = ref(false)
+/** Whether the list on screen was narrowed, so the empty state can say so. */
+const wasFiltered = ref(false)
 
 const sortOptions = [
-  { label: 'Newest First', value: 'desc' },
-  { label: 'Oldest First', value: 'asc' }
+  { label: 'Newest First', value: 'newest' },
+  { label: 'Oldest First', value: 'oldest' }
 ]
 
-const filters = ref({
-  start_date: '',
-  end_date: '',
-  currency: 'ALL',
-  sort: 'desc'
+const emptyFilters = (): TransactionFilterControls => ({
+  startDate: '',
+  endDate: '',
+  sort: 'newest',
+  idempotencyKey: '',
+  metadataKey: '',
+  metadataValue: ''
 })
+
+const filters = ref(emptyFilters())
 
 const applyFilters = () => {
   page.value = 1
@@ -207,12 +256,7 @@ const applyFilters = () => {
 }
 
 const clearFilters = () => {
-  filters.value = {
-    start_date: '',
-    end_date: '',
-    currency: 'ALL',
-    sort: 'desc'
-  }
+  filters.value = emptyFilters()
   page.value = 1
   fetchData()
 }
@@ -221,40 +265,22 @@ watch(page, () => {
   fetchData()
 })
 
-const isNegative = (units: number | string) => {
-  return parseInt(String(units || 0), 10) < 0
-}
-
-const formatCurrency = (amount: number | string, currency: string = 'USD') => {
-  const val = parseInt(String(amount || 0), 10)
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(val)
-}
-
 const fetchData = async () => {
   loading.value = true
   try {
-    const filterPayload: any = {}
-    if (filters.value.currency && filters.value.currency !== 'ALL') {
-      filterPayload.currency = filters.value.currency
-    }
-    if (filters.value.start_date) {
-      filterPayload.start_date = new Date(filters.value.start_date).toISOString()
-    }
-    if (filters.value.end_date) {
-      filterPayload.end_date = new Date(filters.value.end_date).toISOString()
-    }
+    const request = toListTransactionsRequest({
+      ...filters.value,
+      page: page.value,
+      pageSize
+    })
+    wasFiltered.value = request.filter !== undefined
 
-    const data: any = await fetchApi('/transactions/query', {
+    const data = await fetchApi<ListTransactionsResponse>('/transactions/query', {
       method: 'POST',
-      body: {
-        filter: filterPayload,
-        page_size: pageCount,
-        page_number: page.value,
-        order_by_desc: filters.value.sort === 'desc'
-      }
+      body: request
     })
     transactions.value = data.transactions || []
-    totalCount.value = parseInt(data.totalCount || data.total_count || 0, 10)
+    totalCount.value = Number(data.totalCount ?? 0)
   } catch (err: any) {
     if (err.response?.status === 401) {
       useRouter().push('/login')

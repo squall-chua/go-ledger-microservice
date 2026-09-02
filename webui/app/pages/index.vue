@@ -174,37 +174,43 @@
             <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
               <tr v-if="loading">
                 <td
-                  colspan="2"
+                  colspan="4"
                   class="py-2 px-4 text-center text-xs text-gray-500"
                 >
                   Loading balances...
                 </td>
               </tr>
-              <tr v-else-if="!rawBalances || rawBalances.length === 0">
+              <tr v-else-if="!balances || balances.length === 0">
                 <td
-                  colspan="2"
+                  colspan="4"
                   class="py-2 px-4 text-center text-xs text-gray-500"
                 >
                   No balances found for {{ selectedCurrency }}
                 </td>
               </tr>
               <tr
-                v-for="row in rawBalances"
+                v-for="(row, i) in balances"
                 v-else
-                :key="row.account?.name + row.account?.type"
+                :key="i"
                 class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
               >
                 <td class="py-2 px-4 text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {{ formatAccountType(row.account?.type) }}:{{ row.account?.user || '*' }}:{{ row.account?.name || '*' }}
+                  {{ renderAccount(row.account).type }}
+                </td>
+                <td class="py-2 px-4 text-xs text-gray-700 dark:text-gray-300">
+                  {{ renderAccount(row.account).user }}
+                </td>
+                <td class="py-2 px-4 text-xs text-gray-700 dark:text-gray-300">
+                  {{ renderAccount(row.account).name }}
                 </td>
                 <td class="py-2 px-4 text-xs text-right">
                   <span
                     :class="[
                       'font-medium',
-                      isNegative(row.balance?.units) ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
+                      isNegativeMoney(row.balance) ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
                     ]"
                   >
-                    {{ formatCurrency(row.balance?.units, row.balance?.currencyCode) }}
+                    {{ formatMoney(row.balance) }}
                   </span>
                 </td>
               </tr>
@@ -218,12 +224,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { formatAccountType } from '@/utils/constants'
+import type { AccountBalance, ListAccountBalancesResponse } from '~/types/ledger'
 
 const { fetchApi } = useLedgerApi()
 const loading = ref(true)
 const error = ref<any>(null)
-const rawBalances = ref<any[]>([])
+const balances = ref<AccountBalance[]>([])
 
 const selectedCurrency = ref('USD')
 
@@ -237,57 +243,61 @@ const formatCurrency = (amount: number, currency: string = 'USD') => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
 }
 
-const isNegative = (units: number | string) => {
-  return parseInt(String(units || 0), 10) < 0
-}
+// The currency select fetches on its own, so two quick changes leave two
+// requests in flight. Only the newest one may touch the tiles and the table.
+let latestRequest = 0
 
 const fetchData = async () => {
+  const request = ++latestRequest
   loading.value = true
   error.value = null
   try {
-    const data: any = await fetchApi('/accounts/balance', {
+    const data = await fetchApi<ListAccountBalancesResponse>('/accounts/balance', {
       method: 'POST',
-      body: {
-        account: {},
-        currency: selectedCurrency.value
-      }
+      body: toListAccountBalancesRequest({
+        type: 'ALL',
+        currency: selectedCurrency.value,
+        user: '',
+        name: ''
+      })
     })
 
-    let a = 0, r = 0, e = 0
-    if (data && data.balances) {
-      rawBalances.value = data.balances
-      for (const balance of data.balances) {
-        // Enum mapping: 1=ACCOUNT_TYPE_ASSETS, 4=ACCOUNT_TYPE_INCOMES, 5=ACCOUNT_TYPE_EXPENSES
-        const units = parseFloat(balance.balance?.units || '0')
-        const nanos = parseFloat(balance.balance?.nanos || '0')
-        const totalAmount = units + (nanos / 1e9)
+    if (request !== latestRequest) {
+      return
+    }
 
-        switch (balance.account?.type) {
-          case 1:
-          case 'ACCOUNT_TYPE_ASSETS':
-            a += totalAmount
-            break
-          case 4:
-          case 'ACCOUNT_TYPE_INCOMES':
-            r += totalAmount
-            break
-          case 5:
-          case 'ACCOUNT_TYPE_EXPENSES':
-            e += totalAmount
-            break
-        }
+    let a = 0, r = 0, e = 0
+    balances.value = data.balances || []
+    for (const balance of balances.value) {
+      const totalAmount = moneyToNumber(balance.balance)
+
+      switch (balance.account?.type) {
+        case 'ACCOUNT_TYPE_ASSETS':
+          a += totalAmount
+          break
+        case 'ACCOUNT_TYPE_INCOMES':
+          r += totalAmount
+          break
+        case 'ACCOUNT_TYPE_EXPENSES':
+          e += totalAmount
+          break
       }
     }
 
     totals.value = { assets: a, revenue: r, expenses: e }
   } catch (err: any) {
+    if (request !== latestRequest) {
+      return
+    }
     if (err.response?.status === 401) {
       useRouter().push('/login')
     } else {
       error.value = err
     }
   } finally {
-    loading.value = false
+    if (request === latestRequest) {
+      loading.value = false
+    }
   }
 }
 
