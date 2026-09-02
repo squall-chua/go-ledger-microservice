@@ -1,10 +1,5 @@
 import type { ListTransactionsRequest, TransactionFilter } from '../types/ledger'
-
-/**
- * The server clamps anything larger down to this
- * (internal/repository/postgres.go), so the page never asks for more.
- */
-export const MAX_TRANSACTION_PAGE_SIZE = 100
+import { MAX_PAGE_SIZE } from './constants'
 
 /**
  * The transaction list's filter controls, held exactly as the page holds them.
@@ -57,7 +52,7 @@ export const toListTransactionsRequest = (controls: TransactionFilterControls = 
 
   return {
     ...(Object.keys(filter).length > 0 ? { filter } : {}),
-    pageSize: Math.min(controls.pageSize ?? 10, MAX_TRANSACTION_PAGE_SIZE),
+    pageSize: Math.min(controls.pageSize ?? 10, MAX_PAGE_SIZE),
     pageNumber: controls.page ?? 1,
     orderByAscending: controls.sort === 'oldest'
   }
