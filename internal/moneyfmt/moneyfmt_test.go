@@ -5,6 +5,7 @@ import (
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/type/money"
 )
 
@@ -183,7 +184,8 @@ func TestFromDecimal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FromDecimal(tt.decimal, tt.currency)
+			result, err := FromDecimal(tt.decimal, tt.currency)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected.CurrencyCode, result.CurrencyCode)
 			assert.Equal(t, tt.expected.Units, result.Units)
 			assert.Equal(t, tt.expected.Nanos, result.Nanos)
@@ -200,8 +202,32 @@ func TestRoundTripAtNineDigits(t *testing.T) {
 	} {
 		d, err := ToDecimal(in)
 		assert.NoError(t, err)
-		out := FromDecimal(d, in.CurrencyCode)
+		out, err := FromDecimal(d, in.CurrencyCode)
+		require.NoError(t, err)
 		assert.Equal(t, in.Units, out.Units)
 		assert.Equal(t, in.Nanos, out.Nanos)
 	}
+}
+
+// An amount past int64 used to wrap silently and hand back a different number:
+// 1e20 came out as 7766279631452241919, which is what got written to the book.
+// Storage is NUMERIC(38,9) and a balance is a sum of postings, so a stored
+// amount really can exceed int64 without anyone typing one.
+func TestFromDecimalRefusesAmountsBeyondInt64(t *testing.T) {
+	for _, amount := range []string{
+		"99999999999999999999",
+		"-99999999999999999999",
+		"9223372036854775808",
+		"-9223372036854775809",
+	} {
+		result, err := FromDecimal(decimal.RequireFromString(amount), "USD")
+		require.Error(t, err, amount)
+		assert.Nil(t, result, amount)
+		assert.Contains(t, err.Error(), amount)
+	}
+
+	// The last amount that does fit is still converted.
+	result, err := FromDecimal(decimal.RequireFromString("9223372036854775807"), "USD")
+	require.NoError(t, err)
+	assert.EqualValues(t, 9223372036854775807, result.Units)
 }

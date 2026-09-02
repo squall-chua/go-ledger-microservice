@@ -32,14 +32,22 @@ func ToDecimal(m *money.Money) (decimal.Decimal, error) {
 	return decimal.NewFromInt(m.Units).Add(decimal.New(int64(m.Nanos), -9)), nil
 }
 
-// FromDecimal converts shopspring/decimal.Decimal to google.type.Money.
-func FromDecimal(d decimal.Decimal, currency string) *money.Money {
-	units := d.IntPart()
+// FromDecimal converts shopspring/decimal.Decimal to google.type.Money,
+// refusing an amount whose integer part does not fit the int64 units field.
+// Storage is NUMERIC(38,9) and a balance is a sum, so a stored amount can be
+// larger than any single posting: wrapping it silently would put a different
+// number on the wire from the one in the book.
+func FromDecimal(d decimal.Decimal, currency string) (*money.Money, error) {
+	integer := d.BigInt()
+	if !integer.IsInt64() {
+		return nil, fmt.Errorf("amount %s is outside the range money can carry", d)
+	}
+	units := integer.Int64()
 	nanos := d.Sub(decimal.NewFromInt(units)).Mul(decimal.NewFromInt(1e9)).IntPart()
 
 	return &money.Money{
 		CurrencyCode: currency,
 		Units:        units,
 		Nanos:        int32(nanos),
-	}
+	}, nil
 }

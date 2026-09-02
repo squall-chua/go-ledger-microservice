@@ -278,9 +278,13 @@ func parsePosting(arg string) (*pb.RecordTransactionRequest_PostingInput, error)
 	if err != nil {
 		return nil, fmt.Errorf("posting %q has a malformed amount %q", arg, amount)
 	}
+	converted, err := moneyfmt.FromDecimal(value, currency)
+	if err != nil {
+		return nil, fmt.Errorf("posting %q has an amount %q out of range: %w", arg, amount, err)
+	}
 	return &pb.RecordTransactionRequest_PostingInput{
 		Account: account,
-		Amount:  moneyfmt.FromDecimal(value, currency),
+		Amount:  converted,
 	}, nil
 }
 

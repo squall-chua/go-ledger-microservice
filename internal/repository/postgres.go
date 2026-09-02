@@ -338,6 +338,15 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			return nil, false, err
 		}
 
+		amount, err := moneyfmt.FromDecimal(draftPosting.Amount, draftPosting.CurrencyCode)
+		if err != nil {
+			return nil, false, err
+		}
+		reportedBalance, err := moneyfmt.FromDecimal(balance, draftPosting.CurrencyCode)
+		if err != nil {
+			return nil, false, err
+		}
+
 		postings = append(postings, &pb.Posting{
 			Id:            postingID.String(),
 			TransactionId: transactionID.String(),
@@ -346,8 +355,8 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 				User: draftPosting.Account.User,
 				Name: draftPosting.Account.Name,
 			},
-			Amount:    moneyfmt.FromDecimal(draftPosting.Amount, draftPosting.CurrencyCode),
-			Balance:   moneyfmt.FromDecimal(balance, draftPosting.CurrencyCode),
+			Amount:    amount,
+			Balance:   reportedBalance,
 			CreatedAt: timestamppb.New(postingCreatedAt),
 			Date:      timestamppb.New(date),
 		})
@@ -432,13 +441,17 @@ func (r *Repository) ListAccountBalances(ctx context.Context, filter BalanceFilt
 		if err := rows.Scan(&accountType, &accountUser, &accountName, &currencyCode, &balance, &updatedAt); err != nil {
 			return nil, err
 		}
+		reported, err := moneyfmt.FromDecimal(balance, currencyCode)
+		if err != nil {
+			return nil, err
+		}
 		balances = append(balances, &pb.AccountBalance{
 			Account: &pb.Account{
 				Type: accountfmt.StringToAccountType(accountType),
 				User: accountUser,
 				Name: accountName,
 			},
-			Balance:   moneyfmt.FromDecimal(balance, currencyCode),
+			Balance:   reported,
 			UpdatedAt: timestamppb.New(updatedAt),
 		})
 	}
@@ -531,7 +544,11 @@ func (r *Repository) ListTransactions(ctx context.Context, filter TransactionFil
 			seen[id] = transaction
 			transactions = append(transactions, transaction)
 		}
-		transaction.Postings = append(transaction.Postings, posting.proto(id))
+		reported, err := posting.proto(id)
+		if err != nil {
+			return nil, 0, err
+		}
+		transaction.Postings = append(transaction.Postings, reported)
 	}
 	return transactions, total, rows.Err()
 }
@@ -584,7 +601,11 @@ func (r *Repository) ListRegister(ctx context.Context, filter RegisterFilter, pa
 		if err := rows.Scan(append([]any{&transactionID}, posting.fields()...)...); err != nil {
 			return nil, 0, err
 		}
-		postings = append(postings, posting.proto(transactionID))
+		reported, err := posting.proto(transactionID)
+		if err != nil {
+			return nil, 0, err
+		}
+		postings = append(postings, reported)
 	}
 	return postings, total, rows.Err()
 }
@@ -609,7 +630,15 @@ func (row *postingRow) fields() []any {
 		&row.currencyCode, &row.amount, &row.balance, &row.createdAt, &row.date}
 }
 
-func (row *postingRow) proto(transactionID string) *pb.Posting {
+func (row *postingRow) proto(transactionID string) (*pb.Posting, error) {
+	amount, err := moneyfmt.FromDecimal(row.amount, row.currencyCode)
+	if err != nil {
+		return nil, err
+	}
+	balance, err := moneyfmt.FromDecimal(row.balance, row.currencyCode)
+	if err != nil {
+		return nil, err
+	}
 	return &pb.Posting{
 		Id:            row.id,
 		TransactionId: transactionID,
@@ -618,11 +647,11 @@ func (row *postingRow) proto(transactionID string) *pb.Posting {
 			User: row.accountUser,
 			Name: row.accountName,
 		},
-		Amount:    moneyfmt.FromDecimal(row.amount, row.currencyCode),
-		Balance:   moneyfmt.FromDecimal(row.balance, row.currencyCode),
+		Amount:    amount,
+		Balance:   balance,
 		CreatedAt: timestamppb.New(row.createdAt),
 		Date:      timestamppb.New(row.date),
-	}
+	}, nil
 }
 
 // filterBuilder collects the conditions of a read and the values they bind.

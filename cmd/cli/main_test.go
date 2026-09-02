@@ -111,3 +111,17 @@ func TestParseAccount(t *testing.T) {
 	_, err = parseAccount("ASSETS:alice:Checking:10+USD")
 	assert.ErrorContains(t, err, "ASSETS:alice:Checking:10+USD")
 }
+
+// An amount is refused at the boundary rather than quietly changed: the integer
+// part has to fit money's int64 units. 1e20 used to wrap to 7766279631452241919
+// and be recorded.
+func TestParsePostingRefusesAnAmountItCannotRecord(t *testing.T) {
+	for _, arg := range []string{
+		"ASSETS:alice:Checking:99999999999999999999+USD",
+		"ASSETS:alice:Checking:-99999999999999999999+USD",
+	} {
+		_, err := parsePosting(arg)
+		require.Error(t, err, arg)
+		assert.Contains(t, err.Error(), arg)
+	}
+}
