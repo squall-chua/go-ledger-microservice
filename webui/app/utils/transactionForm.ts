@@ -66,6 +66,10 @@ export const validateTransactionForm = (values: TransactionFormValues): string[]
     reasons.push('A note is required.')
   }
 
+  if (values.idempotencyKey.trim() === '') {
+    reasons.push('An idempotency key is required.')
+  }
+
   if (values.postings.length < 2) {
     reasons.push('A transaction needs at least two postings.')
   }
@@ -81,6 +85,13 @@ export const validateTransactionForm = (values: TransactionFormValues): string[]
   const sum = values.postings.reduce((total, posting) => total + amountToNanos(posting.amount), 0)
   if (sum !== 0) {
     reasons.push(`The postings must sum to zero. They sum to ${sum / 1e9}.`)
+  }
+
+  // Metadata goes on the wire as a map, so a repeated key would keep only the
+  // last row and drop the earlier one without a word.
+  const keys = values.metadata.map(row => row.key.trim()).filter(key => key !== '')
+  if (new Set(keys).size !== keys.length) {
+    reasons.push('Each metadata key can be used only once.')
   }
 
   return reasons
@@ -116,6 +127,28 @@ export const toRecordTransactionRequest = (values: TransactionFormValues): Recor
 }
 
 /**
+ * The earliest date the operator can actually type, worked out from the instant
+ * the ledger quoted back.
+ *
+ * Two things stop that instant from being usable advice on its own: it is UTC,
+ * while the form's `datetime-local` box is read as local time, and it carries
+ * microseconds, while the box only goes to the minute. So the whole minute after
+ * the quoted instant is the first value that is both typable and late enough.
+ */
+const earliestDateAdvice = (message: string): string => {
+  const quoted = /already has a posting dated (\S+)/.exec(message)?.[1]
+  const instant = quoted ? new Date(quoted) : null
+  if (!instant || Number.isNaN(instant.getTime())) {
+    return 'Choose a date after that instant, bearing in mind that the date box is read as your own local time and only goes to the minute.'
+  }
+
+  const nextMinute = new Date(Math.floor(instant.getTime() / 60000) * 60000 + 60000)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const local = `${nextMinute.getFullYear()}-${pad(nextMinute.getMonth() + 1)}-${pad(nextMinute.getDate())}T${pad(nextMinute.getHours())}:${pad(nextMinute.getMinutes())}`
+  return `The date box is read as your own local time and only goes to the minute, so type ${local} or later.`
+}
+
+/**
  * A rejection from the ledger as something the operator can read. The gateway
  * puts the gRPC status body on `err.response._data`, which ofetch hands back on
  * the thrown error.
@@ -137,7 +170,7 @@ export const describeLedgerError = (err: any): string => {
   const message: string = err?.response?._data?.message || err?.message || 'The ledger refused the transaction.'
 
   if (message.startsWith('transaction is backdated')) {
-    return `${message}. The transaction date is earlier than the latest posting on an account this entry touches, and the ledger only records forward. Choose a date at or after that posting, or leave the date blank for the ledger to stamp one.`
+    return `${message}. That posting date is in UTC. The transaction date is earlier than the latest posting on an account this entry touches, and the ledger only records forward. ${earliestDateAdvice(message)} Or leave the date blank for the ledger to stamp one.`
   }
 
   if (message.startsWith('date is more than five minutes in the future')) {

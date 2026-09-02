@@ -23,6 +23,7 @@
 
     <div
       v-if="replayed"
+      ref="replayedBanner"
       class="mb-6 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40"
     >
       <div class="flex items-center gap-2 mb-2">
@@ -299,7 +300,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import type { RecordTransactionResponse, Transaction } from '~/types/ledger'
 import type { PostingRow, TransactionFormValues } from '~/utils/transactionForm'
 
@@ -332,6 +333,7 @@ const submitting = ref(false)
 // the operator can see what is already there, which is why a replay stays on
 // the page rather than routing away like a fresh entry does.
 const replayed = ref<Transaction | null>(null)
+const replayedBanner = ref<HTMLElement | null>(null)
 
 // The running sum is kept in whole nanos, the same integers the postings are
 // sent as, so what the operator watches reach zero is what the ledger checks.
@@ -342,7 +344,12 @@ const sumNanos = computed(() => {
 const reasons = computed(() => validateTransactionForm(form.value))
 
 const generateIdempotencyKey = () => {
-  form.value.idempotencyKey = crypto.randomUUID()
+  // crypto.randomUUID only exists in a secure context, so over plain HTTP on a
+  // host that is not localhost it is undefined. The fallback is not random
+  // enough to be a secret, and does not need to be: an idempotency key only has
+  // to be unique among this operator's submissions, and it is theirs to edit.
+  form.value.idempotencyKey = crypto.randomUUID?.()
+    ?? `key-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 // Generated on the client only: a key generated during SSR would not match the
@@ -368,13 +375,16 @@ const removeMetadata = (idx: number) => {
 }
 
 const submitTransaction = async () => {
+  // Cleared before the checks below, so a banner from an earlier replay cannot
+  // sit there describing an unrelated transaction while this submit is refused.
+  replayed.value = null
+
   // The local checks are a convenience; the ledger stays the authority.
   if (reasons.value.length > 0) {
     return
   }
 
   submitting.value = true
-  replayed.value = null
   try {
     const response = await fetchApi<RecordTransactionResponse>('/transactions', {
       method: 'POST',
@@ -383,6 +393,10 @@ const submitTransaction = async () => {
 
     if (response.replayed) {
       replayed.value = response.transaction
+      // The banner is at the top of a long form and the Record button is at the
+      // bottom, so without this the operator only ever sees the toast.
+      await nextTick()
+      replayedBanner.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       toast.add({
         title: 'Already Recorded',
         description: 'This idempotency key had already recorded this entry. Nothing new was written.',

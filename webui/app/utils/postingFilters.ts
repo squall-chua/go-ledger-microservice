@@ -2,7 +2,7 @@ import type { AccountFilter, AccountType, ListPostingsRequest, PostingFilter } f
 
 /** The register's filter controls, exactly as the page holds them. */
 export interface RegisterFilters {
-  /** An AccountType name, or '' for not filtered. */
+  /** An AccountType name, or 'ALL' for not filtered. */
   accountType: string
   user: string
   name: string
@@ -34,7 +34,7 @@ export const toListPostingsRequest = (
   pageSize: number
 ): ListPostingsRequest => {
   const account: AccountFilter = {}
-  if (filters.accountType) {
+  if (filters.accountType && filters.accountType !== 'ALL') {
     account.type = filters.accountType as AccountType
   }
   const user = filters.user.trim()

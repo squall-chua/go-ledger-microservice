@@ -3,7 +3,7 @@ import type { RegisterFilters } from './postingFilters'
 import { toListPostingsRequest } from './postingFilters'
 
 const empty: RegisterFilters = {
-  accountType: '',
+  accountType: 'ALL',
   user: '',
   name: '',
   currency: 'ALL',
@@ -65,6 +65,10 @@ describe('toListPostingsRequest', () => {
   it('sends the currency at the top level of the filter', () => {
     const request = toListPostingsRequest(filters({ currency: 'EUR' }), 1, 50)
     expect(request.filter).toEqual({ currencyCode: 'EUR' })
+  })
+
+  it('does not filter on account type when all types are wanted', () => {
+    expect(toListPostingsRequest(filters({ accountType: 'ALL' }), 1, 50).filter).toBeUndefined()
   })
 
   it('does not filter on currency when all currencies are wanted', () => {

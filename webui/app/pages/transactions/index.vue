@@ -280,7 +280,7 @@ const fetchData = async () => {
       body: request
     })
     transactions.value = data.transactions || []
-    totalCount.value = Number(data.totalCount)
+    totalCount.value = Number(data.totalCount ?? 0)
   } catch (err: any) {
     if (err.response?.status === 401) {
       useRouter().push('/login')

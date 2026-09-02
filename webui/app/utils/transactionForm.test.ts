@@ -30,6 +30,34 @@ describe('validateTransactionForm', () => {
     expect(validateTransactionForm(valuesWith({ note: '   ' }))).toContain('A note is required.')
   })
 
+  it('refuses a blank idempotency key, as the ledger does', () => {
+    expect(validateTransactionForm(valuesWith({ idempotencyKey: '' })))
+      .toContain('An idempotency key is required.')
+    expect(validateTransactionForm(valuesWith({ idempotencyKey: '   ' })))
+      .toContain('An idempotency key is required.')
+  })
+
+  it('refuses the same metadata key twice, because the map would keep only one', () => {
+    const values = valuesWith({
+      metadata: [
+        { key: 'order_id', value: 'A' },
+        { key: ' order_id ', value: 'B' }
+      ]
+    })
+    expect(validateTransactionForm(values)).toContain('Each metadata key can be used only once.')
+  })
+
+  it('says nothing about metadata keys that only look alike because they are blank', () => {
+    const values = valuesWith({
+      metadata: [
+        { key: '', value: 'A' },
+        { key: '  ', value: 'B' },
+        { key: 'order_id', value: 'C' }
+      ]
+    })
+    expect(validateTransactionForm(values)).toEqual([])
+  })
+
   it('refuses a mixture of currencies', () => {
     const values = valuesWith({
       postings: [
@@ -152,6 +180,40 @@ describe('describeLedgerError', () => {
     const description = describeLedgerError(err)
     expect(description).toContain('assets:alice:Checking already has a posting dated 2026-09-02T01:26:24.196084Z')
     expect(description).toContain('earlier than the latest posting on an account this entry touches')
+  })
+
+  it('says the quoted instant is UTC and offers a local minute the date box can express', () => {
+    const refused = '2026-09-02T01:26:24.196084Z'
+    const err = {
+      response: {
+        _data: {
+          code: 9,
+          message: `transaction is backdated: assets:alice:Checking already has a posting dated ${refused}`
+        }
+      }
+    }
+    const description = describeLedgerError(err)
+    expect(description).toContain('That posting date is in UTC.')
+
+    const suggested = /type (\S+) or later/.exec(description)?.[1]
+    expect(suggested).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+
+    // Read back the way toRecordTransactionRequest reads the box: as local time.
+    const wouldSend = new Date(suggested!).getTime()
+    const refusedAt = new Date(refused).getTime()
+    expect(wouldSend).toBeGreaterThan(refusedAt)
+    expect(wouldSend - refusedAt).toBeLessThanOrEqual(60_000)
+  })
+
+  it('still gives usable advice when the instant cannot be read', () => {
+    const err = {
+      response: {
+        _data: { code: 9, message: 'transaction is backdated: assets:alice:Checking already has a posting dated later' }
+      }
+    }
+    const description = describeLedgerError(err)
+    expect(description).toContain('your own local time')
+    expect(description).not.toMatch(/type \S+ or later/)
   })
 
   it('explains a date too far in the future', () => {

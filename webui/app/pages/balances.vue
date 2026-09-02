@@ -158,22 +158,36 @@ const accountTypeOptions = [
   ...ACCOUNT_TYPES
 ]
 
+// Every control fetches on its own, so two quick changes leave two requests in
+// flight. Only the newest one may touch the table: a trial balance showing rows
+// from a filter the operator has already moved off is silently wrong numbers.
+let latestRequest = 0
+
 const fetchData = async () => {
+  const request = ++latestRequest
   loading.value = true
   try {
     const data = await fetchApi<ListAccountBalancesResponse>('/accounts/balance', {
       method: 'POST',
       body: toListAccountBalancesRequest(filters.value)
     })
+    if (request !== latestRequest) {
+      return
+    }
     balances.value = data.balances || []
   } catch (err: any) {
+    if (request !== latestRequest) {
+      return
+    }
     if (err.response?.status === 401) {
       useRouter().push('/login')
     } else {
       useToast().add({ title: 'Error', description: err.message, color: 'error' })
     }
   } finally {
-    loading.value = false
+    if (request === latestRequest) {
+      loading.value = false
+    }
   }
 }
 
