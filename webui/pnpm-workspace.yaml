@@ -1,3 +1,9 @@
+# Installing @nuxt/test-utils pulled a second copy of Vue alongside the one
+# Nuxt itself uses, and two Vue runtimes in one app break Nuxt UI at render
+# time. Pin every package to the Vue that Nuxt itself uses.
+overrides:
+  vue: 3.5.28
+
 ignoredBuiltDependencies:
   - '@parcel/watcher'
   - '@tailwindcss/oxide'
