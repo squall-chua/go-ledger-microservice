@@ -199,8 +199,12 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 
 	// The transaction date: the supplied one, or the clock when the caller
 	// omitted it, which the seeding below then advances past any posting it
-	// would otherwise precede.
-	date := time.Now().UTC()
+	// would otherwise precede. The clock is truncated to the microsecond the
+	// column resolves to, both so the date returned is the date the listings
+	// read back, and so "advance past `latest`" is judged on the value that
+	// actually lands rather than on sub-microsecond digits storage drops. A
+	// supplied date is already truncated where the draft is built.
+	date := time.Now().UTC().Truncate(time.Microsecond)
 	if draft.Date != nil {
 		date = *draft.Date
 	}

@@ -74,7 +74,17 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 	// park a posting in the future and refuse every later write to that account
 	// as backdated. An omitted date is left for the ledger to stamp, under the
 	// row locks where it can see what it has to advance past.
+	//
+	// A supplied date is truncated to the microsecond here, once, on its way
+	// into the draft: storage resolves to the microsecond, so echoing the
+	// caller's nanoseconds back would report a date no listing can ever return.
+	// It happens before the fingerprint, which the repository takes from the
+	// draft, so the hash covers the date as recorded rather than one that was
+	// never stored — and a retry truncates identically, so it still replays.
 	date := dateOrNil(req.Date)
+	if date != nil {
+		*date = date.Truncate(time.Microsecond)
+	}
 	if date != nil && date.After(time.Now().Add(5*time.Minute)) {
 		return draft, status.Error(codes.InvalidArgument, "date is more than five minutes in the future")
 	}

@@ -266,6 +266,47 @@ func TestEveryPostingCarriesTheTransactionDate(t *testing.T) {
 	assert.True(t, day(1).Equal(register.Postings[0].Date.AsTime()), "ListPostings")
 }
 
+// The date a transaction reports does not depend on which RPC is asked for it.
+// Storage resolves to the microsecond, so a supplied date is truncated once on
+// the way in and that single value reaches the record response, the listing and
+// the register alike.
+func TestASuppliedDateReadsTheSameFromEveryRPC(t *testing.T) {
+	h := newHarness(t)
+
+	supplied := time.Date(2026, time.March, 10, 12, 0, 0, 123456789, time.UTC)
+	want := supplied.Truncate(time.Microsecond)
+	require.NotEqual(t, supplied, want, "the supplied date carries nanoseconds storage cannot hold")
+
+	request := transfer("nanoseconds", "a deposit", opening, cash, usd(100, 0))
+	request.Date = timestamppb.New(supplied)
+
+	recorded, err := h.record(request)
+	require.NoError(t, err)
+	assertDate(t, want, recorded.Transaction.Date, "RecordTransaction")
+	for _, posting := range recorded.Transaction.Postings {
+		assertDate(t, want, posting.Date, "RecordTransaction posting")
+	}
+
+	listed := h.transactions(&pb.ListTransactionsRequest{}).Transactions[0]
+	assertDate(t, want, listed.Date, "ListTransactions")
+	for _, posting := range listed.Postings {
+		assertDate(t, want, posting.Date, "ListTransactions posting")
+	}
+
+	register := h.register(&pb.ListPostingsRequest{Filter: &pb.PostingFilter{Account: exactly(cash)}})
+	require.Len(t, register.Postings, 1)
+	assertDate(t, want, register.Postings[0].Date, "ListPostings")
+
+	// The replay is answered out of the listing query, so the truncation has to
+	// have happened before the fingerprint: were the hash taken over the
+	// nanoseconds, the same request sent twice would still replay, but it would
+	// stand for a date that was never stored.
+	replay, err := h.record(request)
+	require.NoError(t, err)
+	assert.True(t, replay.Replayed, "a retry with identical content is a replay")
+	assertDate(t, want, replay.Transaction.Date, "the replay")
+}
+
 // TestASuppliedDateDiffersFromCreatedAt pins the distinction CONTEXT.md draws
 // between the Transaction date and created_at: a Posting carries both, and
 // they are not the same field wearing two names.
@@ -685,6 +726,13 @@ func postingCountsOf(transactions []*pb.Transaction) []int {
 		counts[i] = len(transaction.Postings)
 	}
 	return counts
+}
+
+func assertDate(t *testing.T, want time.Time, got *timestamppb.Timestamp, where string) {
+	t.Helper()
+	require.NotNil(t, got, where)
+	assert.True(t, want.Equal(got.AsTime()), "%s reports %s, want %s",
+		where, got.AsTime().Format(time.RFC3339Nano), want.Format(time.RFC3339Nano))
 }
 
 func assertMoney(t *testing.T, want, got *money.Money, msgAndArgs ...any) {
