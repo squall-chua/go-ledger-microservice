@@ -7,8 +7,15 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
+	_ "google.golang.org/protobuf/types/known/emptypb"
 )
 
 type mockTokenValidator struct {
@@ -81,28 +88,89 @@ func TestAuthInterceptorUnauthenticated(t *testing.T) {
 	}
 }
 
-// A method the registry does not know carries no rule, so it is not guarded.
-func TestAuthInterceptorPassesThroughUnknownMethod(t *testing.T) {
+// A method the interceptor cannot read scopes from is a method it cannot
+// authorize, so it is refused rather than let through. Called with no token at
+// all: the refusal is the annotation's absence, not the caller's.
+func TestAuthInterceptorDeniesMethodsWithoutRule(t *testing.T) {
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "success", nil
+	}
+	interceptor := AuthInterceptor(&mockTokenValidator{tokenInfo: &TokenInfo{}})
+
+	methods := map[string]string{
+		"declares no required_scopes": probeMethod,
+		"absent from the registry":    "/v1.LedgerService/NoSuchMethod",
+		"not a method name":           "not-a-method",
+		"not a method descriptor":     "/v1/RecordTransactionRequest",
+	}
+
+	for name, method := range methods {
+		t.Run(name, func(t *testing.T) {
+			_, err := interceptor(context.Background(), nil,
+				&grpc.UnaryServerInfo{FullMethod: method}, handler)
+			if got := status.Code(err); got != codes.PermissionDenied {
+				t.Fatalf("expected PermissionDenied, got %v (%v)", got, err)
+			}
+		})
+	}
+}
+
+// The health check is served alongside the ledger, carries no scopes and stays
+// reachable without a token.
+func TestAuthInterceptorAllowsHealthCheck(t *testing.T) {
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return "success", nil
 	}
 	interceptor := AuthInterceptor(&mockTokenValidator{tokenInfo: &TokenInfo{}})
 
 	_, err := interceptor(context.Background(), nil,
-		&grpc.UnaryServerInfo{FullMethod: "/UnknownService/UnknownMethod"}, handler)
+		&grpc.UnaryServerInfo{FullMethod: grpc_health_v1.Health_Check_FullMethodName}, handler)
 	if err != nil {
-		t.Fatalf("expected no error for unknown method, got %v", err)
+		t.Fatalf("expected the health check to pass, got %v", err)
 	}
 }
 
-func TestContextWithTokenInfo(t *testing.T) {
-	ctx := ContextWithTokenInfo(context.Background(), &TokenInfo{Scopes: []string{"ledger:read"}})
-
-	retrieved, ok := TokenInfoFromContext(ctx)
-	if !ok {
-		t.Fatal("expected to find TokenInfo in context")
+// The interceptor is unary only, so a streaming RPC would reach its handler
+// unauthorized however it were annotated. LedgerService declares none; this
+// fails the day one is added, which is the day a stream interceptor is needed.
+func TestLedgerServiceDeclaresNoStreamingRPCs(t *testing.T) {
+	desc, err := protoregistry.GlobalFiles.FindDescriptorByName("v1.LedgerService")
+	if err != nil {
+		t.Fatalf("LedgerService not in the registry: %v", err)
 	}
-	if len(retrieved.Scopes) != 1 || retrieved.Scopes[0] != "ledger:read" {
-		t.Errorf("unexpected scopes: %v", retrieved.Scopes)
+
+	methods := desc.(protoreflect.ServiceDescriptor).Methods()
+	for i := range methods.Len() {
+		if method := methods.Get(i); method.IsStreamingClient() || method.IsStreamingServer() {
+			t.Errorf("%s streams; AuthInterceptor guards unary calls only", method.FullName())
+		}
+	}
+}
+
+// probeMethod is an RPC registered without an `auth.v1.rule`, standing in for
+// one someone adds and forgets to annotate. It is registered here rather than
+// declared in ledger.proto so the ledger's own API carries no unguarded RPC.
+const probeMethod = "/middleware.probe.v1.ProbeService/Unannotated"
+
+func init() {
+	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+		Name:       proto.String("middleware/probe/v1/probe.proto"),
+		Package:    proto.String("middleware.probe.v1"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/empty.proto"},
+		Service: []*descriptorpb.ServiceDescriptorProto{{
+			Name: proto.String("ProbeService"),
+			Method: []*descriptorpb.MethodDescriptorProto{{
+				Name:       proto.String("Unannotated"),
+				InputType:  proto.String(".google.protobuf.Empty"),
+				OutputType: proto.String(".google.protobuf.Empty"),
+			}},
+		}},
+	}, protoregistry.GlobalFiles)
+	if err != nil {
+		panic(err)
+	}
+	if err := protoregistry.GlobalFiles.RegisterFile(file); err != nil {
+		panic(err)
 	}
 }

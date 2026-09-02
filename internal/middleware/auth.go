@@ -2,11 +2,13 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -28,46 +30,23 @@ type TokenInfo struct {
 	Scopes []string
 }
 
-type contextKey string
-
-const TokenInfoKey contextKey = "token_info"
-
-// ContextWithTokenInfo stores the TokenInfo in the context.
-func ContextWithTokenInfo(ctx context.Context, info *TokenInfo) context.Context {
-	return context.WithValue(ctx, TokenInfoKey, info)
-}
-
-// TokenInfoFromContext retrieves the TokenInfo from the context.
-func TokenInfoFromContext(ctx context.Context) (*TokenInfo, bool) {
-	info, ok := ctx.Value(TokenInfoKey).(*TokenInfo)
-	return info, ok
+// unguardedMethods are the infrastructure RPCs served alongside the ledger that
+// carry no scopes and are reachable without a token. Every other method must
+// declare its own `required_scopes`; anything not named here and not annotated
+// is refused.
+var unguardedMethods = map[string]bool{
+	grpc_health_v1.Health_Check_FullMethodName: true,
 }
 
 func AuthInterceptor(validator TokenValidator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		// Extract method descriptor
-		methodName := strings.TrimPrefix(info.FullMethod, "/")
-		parts := strings.Split(methodName, "/")
-		if len(parts) != 2 {
+		if unguardedMethods[info.FullMethod] {
 			return handler(ctx, req)
 		}
 
-		fullName := protoreflect.FullName(parts[0] + "." + parts[1])
-		desc, err := protoregistry.GlobalFiles.FindDescriptorByName(fullName)
+		required, err := requiredScopes(info.FullMethod)
 		if err != nil {
-			return handler(ctx, req)
-		}
-
-		methodDesc, ok := desc.(protoreflect.MethodDescriptor)
-		if !ok {
-			return handler(ctx, req)
-		}
-
-		ext := proto.GetExtension(methodDesc.Options(), pb.E_Rule)
-		rule, ok := ext.(*pb.AuthRule)
-
-		if !ok || rule == nil || len(rule.RequiredScopes) == 0 {
-			return handler(ctx, req)
+			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 
 		tokenStr, err := grpcauth.AuthFromMD(ctx, "bearer")
@@ -83,17 +62,44 @@ func AuthInterceptor(validator TokenValidator) grpc.UnaryServerInterceptor {
 		// The token must carry one of the scopes the method declares. Scopes do
 		// not imply one another: a caller needing both is issued both.
 		allowed := false
-		for _, required := range rule.RequiredScopes {
-			if slices.Contains(tokenInfo.Scopes, required) {
+		for _, scope := range required {
+			if slices.Contains(tokenInfo.Scopes, scope) {
 				allowed = true
 				break
 			}
 		}
 		if !allowed {
-			return nil, status.Errorf(codes.PermissionDenied, "missing required scope %v", rule.RequiredScopes)
+			return nil, status.Errorf(codes.PermissionDenied, "missing required scope %v", required)
 		}
 
-		ctx = ContextWithTokenInfo(ctx, tokenInfo)
 		return handler(ctx, req)
 	}
+}
+
+// requiredScopes reads the scopes a method declares in its `auth.v1.rule`
+// annotation. A method the ledger cannot read scopes from is one it cannot
+// authorize, so every failure here is an error the caller is refused on rather
+// than a way past the check.
+func requiredScopes(fullMethod string) ([]string, error) {
+	parts := strings.Split(strings.TrimPrefix(fullMethod, "/"), "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unreadable method name %q", fullMethod)
+	}
+
+	desc, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(parts[0] + "." + parts[1]))
+	if err != nil {
+		return nil, fmt.Errorf("unknown method %q", fullMethod)
+	}
+
+	methodDesc, ok := desc.(protoreflect.MethodDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("%q is not a method", fullMethod)
+	}
+
+	rule, ok := proto.GetExtension(methodDesc.Options(), pb.E_Rule).(*pb.AuthRule)
+	if !ok || rule == nil || len(rule.RequiredScopes) == 0 {
+		return nil, fmt.Errorf("method %q declares no required_scopes", fullMethod)
+	}
+
+	return rule.RequiredScopes, nil
 }

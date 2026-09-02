@@ -79,6 +79,15 @@ func TestBothScopesMayRecordAndQuery(t *testing.T) {
 	}
 }
 
+// A scope is matched whole, never by prefix: `ledger:readwrite` is a scope of
+// its own, and a caller holding it does not hold `ledger:read`.
+func TestScopesAreMatchedWhole(t *testing.T) {
+	h := newHarness(t)
+	ctx := callerContext(t, t.Context(), "ledger:readwrite")
+
+	requireCode(t, queries["ListAccountBalances"](ctx, h), codes.PermissionDenied)
+}
+
 func TestBadTokensAreRefused(t *testing.T) {
 	h := newHarness(t)
 
