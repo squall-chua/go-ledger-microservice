@@ -15,7 +15,9 @@ import (
 //
 // What goes in: the note, the supplied date, the metadata pairs sorted by key,
 // and the postings in request order. Reordering the postings is a different
-// transaction and hashes differently.
+// transaction and hashes differently. The date is hashed at the resolution it
+// is stored at, so the hash covers the date as recorded rather than one that
+// was never stored, and a retry hashes identically and still replays.
 //
 // What stays out: a stamped date, because the ledger picks a different instant
 // for every identical retry of a caller who supplies none, and the accounts
@@ -36,7 +38,7 @@ func fingerprintOf(draft TransactionDraft) string {
 
 	field("note", draft.Note)
 	if draft.Date != nil {
-		field("date", draft.Date.UTC().Format(time.RFC3339Nano))
+		field("date", truncateDate(*draft.Date).Format(time.RFC3339Nano))
 	}
 
 	fmt.Fprintf(sum, "metadata=%d;", len(draft.Metadata))

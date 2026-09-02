@@ -88,124 +88,14 @@ func TestListAccountBalancesWithNoFilterReturnsTheTrialBalance(t *testing.T) {
 	assertMoney(t, usd(-100, 0), balanceOf(t, balances, opening))
 }
 
-func TestRecordTransactionRefusesAMalformedTransaction(t *testing.T) {
-	h := newHarness(t)
-
-	cases := map[string]*pb.RecordTransactionRequest{
-		"postings do not sum to zero": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, 0)),
-				posting(opening, usd(-99, 0)),
-			},
-		},
-		"fewer than two postings": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{posting(cash, usd(100, 0))},
-		},
-		"no postings at all": {IdempotencyKey: "key", Note: "note"},
-		"a zero amount": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(0, 0)),
-				posting(opening, usd(0, 0)),
-			},
-		},
-		"differing currencies": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, 0)),
-				posting(opening, amount("EUR", -100, 0)),
-			},
-		},
-		"a missing amount": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, nil),
-				posting(opening, usd(-100, 0)),
-			},
-		},
-		"an empty currency code": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, amount("", 100, 0)),
-				posting(opening, amount("", -100, 0)),
-			},
-		},
-		"out of range nanos": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, 1000000000)),
-				posting(opening, usd(-100, 0)),
-			},
-		},
-		"units and nanos disagreeing on sign": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, -500000000)),
-				posting(opening, usd(-100, 0)),
-			},
-		},
-		"an empty note": {
-			IdempotencyKey: "key",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, 0)),
-				posting(opening, usd(-100, 0)),
-			},
-		},
-		"an empty idempotency key": {
-			Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, 0)),
-				posting(opening, usd(-100, 0)),
-			},
-		},
-		"a missing account": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(nil, usd(100, 0)),
-				posting(opening, usd(-100, 0)),
-			},
-		},
-		"an incomplete account to verify": {
-			IdempotencyKey: "key", Note: "note",
-			Postings: []*pb.RecordTransactionRequest_PostingInput{
-				posting(cash, usd(100, 0)),
-				posting(opening, usd(-100, 0)),
-			},
-			VerifyNonNegativeBalances: []*pb.Account{
-				account(pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED, "alice", "Checking"),
-			},
-		},
-	}
-
-	for name, request := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := h.record(request)
-			requireCode(t, err, codes.InvalidArgument)
-			assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}), "a refused transaction changes nothing")
-		})
-	}
-}
-
-func TestRecordTransactionRefusesAnUnspecifiedAccountType(t *testing.T) {
+// The refusals themselves are pinned in draft_test.go, at the interface that
+// makes them and without a database. This is the part of them a database is
+// needed to show: a refused transaction leaves the book exactly as it was.
+func TestARefusedTransactionChangesNothing(t *testing.T) {
 	h := newHarness(t)
 
 	_, err := h.record(transfer("key", "note",
 		account(pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED, "alice", "Checking"), opening, usd(100, 0)))
-
-	requireCode(t, err, codes.InvalidArgument)
-	assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}))
-}
-
-// A proto3 enum is open, so a caller built against a newer schema can put a
-// number on the wire this build has no name for. Storing it would write money
-// under an account every read reports as unspecified.
-func TestRecordTransactionRefusesAnUnknownAccountType(t *testing.T) {
-	h := newHarness(t)
-
-	_, err := h.record(transfer("key", "note",
-		account(pb.AccountType(99), "alice", "Checking"), opening, usd(100, 0)))
 
 	requireCode(t, err, codes.InvalidArgument)
 	assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}))
@@ -981,35 +871,12 @@ func TestVerifyNonNegativeBalancesLeavesUnnamedAccountsAlone(t *testing.T) {
 // passed over: a typo would otherwise turn the guard off silently and record
 // the transaction anyway, which is the whole thing the caller asked to prevent.
 // Nothing here is a pattern — "*", "%" and "Check%" are literal names.
+// The near misses that never reach a balance at all are in draft_test.go. Here
+// the account is spelled exactly, so it guards, and the transaction is refused
+// on the balance it would have left behind.
 func TestVerifyNonNegativeBalancesMatchesAccountsExactly(t *testing.T) {
 	h := newHarness(t)
 
-	nearMisses := map[string]*pb.Account{
-		"the wrong type":      account(pb.AccountType_ACCOUNT_TYPE_LIABILITIES, "alice", "Checking"),
-		"the wrong user":      account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "bob", "Checking"),
-		"a truncated name":    account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check"),
-		"a typo in the name":  account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Checkin"),
-		"an empty name":       account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", ""),
-		"an empty user":       account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "", "Checking"),
-		"only the type set":   account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "", ""),
-		"a star as the name":  account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "*", "*"),
-		"a per-cent sign":     account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "%"),
-		"a trailing per-cent": account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check%"),
-	}
-
-	for name, toVerify := range nearMisses {
-		t.Run(name, func(t *testing.T) {
-			request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
-			request.VerifyNonNegativeBalances = []*pb.Account{toVerify}
-
-			_, err := h.record(request)
-			requireCode(t, err, codes.InvalidArgument)
-			assert.Empty(t, h.balances(&pb.ListAccountBalancesRequest{}), "the refused transaction changed nothing")
-		})
-	}
-
-	// The account the transaction really does drive negative is spelled exactly,
-	// so it guards, and the same transaction is refused on its balance instead.
 	request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
 	request.VerifyNonNegativeBalances = []*pb.Account{cash}
 	_, err := h.record(request)
