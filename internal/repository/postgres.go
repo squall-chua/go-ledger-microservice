@@ -389,7 +389,7 @@ func (r *Repository) recordedUnder(ctx context.Context, key, fingerprint string)
 // empty filter it returns the trial balance.
 func (r *Repository) ListAccountBalances(ctx context.Context, filter BalanceFilter) ([]*pb.AccountBalance, error) {
 	var where filterBuilder
-	where.account(filter.Type, filter.User, filter.Name, filter.CurrencyCode)
+	where.account("", filter.Type, filter.User, filter.Name, filter.CurrencyCode)
 
 	query := `
 		SELECT account_type, account_user, account_name, currency_code, balance, updated_at
@@ -519,15 +519,23 @@ func (r *Repository) ListTransactions(ctx context.Context, filter TransactionFil
 // with the total number of postings the filter matches.
 func (r *Repository) ListRegister(ctx context.Context, filter RegisterFilter, page Page) ([]*pb.Posting, int64, error) {
 	var where filterBuilder
-	where.account(filter.Type, filter.User, filter.Name, filter.CurrencyCode)
-	where.dateRange("date", filter.StartDate, filter.EndDate)
+	where.account("p.", filter.Type, filter.User, filter.Name, filter.CurrencyCode)
+	where.dateRange("p.date", filter.StartDate, filter.EndDate)
+
 	// A posting carries no metadata of its own, so the pairs are matched
-	// against the transaction it belongs to.
-	where.contains("(SELECT metadata FROM transactions WHERE id = postings.transaction_id)", filter.Metadata)
+	// against the transaction it belongs to. That match is a join and not a
+	// subquery in the WHERE clause, so the planner can drive the read from the
+	// transactions the filter leaves and stop once the page is full. When
+	// nothing filters on metadata, nothing needs the join.
+	from := "postings p"
+	if len(filter.Metadata) > 0 {
+		from = "postings p JOIN transactions t ON t.id = p.transaction_id"
+		where.contains("t.metadata", filter.Metadata)
+	}
 
 	var total int64
 	if err := r.db.QueryRowContext(ctx,
-		"SELECT count(*) FROM postings"+where.clause(), where.args...,
+		"SELECT count(*) FROM "+from+where.clause(), where.args...,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -535,10 +543,10 @@ func (r *Repository) ListRegister(ctx context.Context, filter RegisterFilter, pa
 	limit, offset := page.bounds()
 	direction := page.direction()
 	query := `
-		SELECT transaction_id, id, account_type, account_user, account_name,
-		       currency_code, amount, balance, created_at, date
-		FROM postings` + where.clause() + `
-		ORDER BY date ` + direction + ", id " + direction +
+		SELECT p.transaction_id, p.id, p.account_type, p.account_user, p.account_name,
+		       p.currency_code, p.amount, p.balance, p.created_at, p.date
+		FROM ` + from + where.clause() + `
+		ORDER BY p.date ` + direction + ", p.id " + direction +
 		" LIMIT " + where.bind(limit) + " OFFSET " + where.bind(offset)
 
 	rows, err := r.db.QueryContext(ctx, query, where.args...)
@@ -627,11 +635,13 @@ func (b *filterBuilder) equalIfGiven(column string, value *string) {
 	}
 }
 
-func (b *filterBuilder) account(accountType string, user, name *string, currencyCode string) {
-	b.equalIfSet("account_type", accountType)
-	b.equalIfGiven("account_user", user)
-	b.equalIfGiven("account_name", name)
-	b.equalIfSet("currency_code", currencyCode)
+// account filters the account columns. The qualifier is the table alias the
+// query gives them, "p." or empty when the query has no alias.
+func (b *filterBuilder) account(qualifier, accountType string, user, name *string, currencyCode string) {
+	b.equalIfSet(qualifier+"account_type", accountType)
+	b.equalIfGiven(qualifier+"account_user", user)
+	b.equalIfGiven(qualifier+"account_name", name)
+	b.equalIfSet(qualifier+"currency_code", currencyCode)
 }
 
 // contains filters on JSONB containment: the expression has to hold every pair

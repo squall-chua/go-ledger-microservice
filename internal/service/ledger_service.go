@@ -65,6 +65,9 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 	if len(req.Postings) < 2 {
 		return draft, status.Error(codes.InvalidArgument, "a transaction needs at least two postings")
 	}
+	if err := checkMetadata(req.Metadata); err != nil {
+		return draft, err
+	}
 
 	// A supplied date is a claim about when the event happened, and is refused
 	// more than five minutes ahead of now: one bad client clock would otherwise
@@ -174,7 +177,7 @@ func (s *ledgerService) ListAccountBalances(ctx context.Context, req *pb.ListAcc
 }
 
 func (s *ledgerService) ListTransactions(ctx context.Context, req *pb.ListTransactionsRequest) (*pb.ListTransactionsResponse, error) {
-	if err := checkMetadataFilter(req.Filter.GetMetadata()); err != nil {
+	if err := checkMetadata(req.Filter.GetMetadata()); err != nil {
 		return nil, err
 	}
 	filter := repository.TransactionFilter{
@@ -193,7 +196,7 @@ func (s *ledgerService) ListTransactions(ctx context.Context, req *pb.ListTransa
 }
 
 func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRequest) (*pb.ListPostingsResponse, error) {
-	if err := checkMetadataFilter(req.Filter.GetMetadata()); err != nil {
+	if err := checkMetadata(req.Filter.GetMetadata()); err != nil {
 		return nil, err
 	}
 	accountType, user, name := accountFilter(req.Filter.GetAccount())
@@ -215,13 +218,15 @@ func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRe
 	return &pb.ListPostingsResponse{Postings: postings, TotalCount: total}, nil
 }
 
-// checkMetadataFilter refuses a malformed filter pair. A pair is malformed when
-// its key is empty: there is nothing to match on, so the caller is told rather
-// than handed a listing that quietly filtered on nothing useful. An empty value
-// is well formed — it asks for a key stored with an empty value.
-func checkMetadataFilter(pairs map[string]string) error {
+// checkMetadata refuses a malformed pair, on the way in as well as on the way
+// out. A pair is malformed when its key is empty: there is nothing to match on,
+// so a filter is refused rather than handed a listing that quietly filtered on
+// nothing useful, and a write is refused rather than storing a pair no filter
+// could ever ask for again. An empty value is well formed — it is a key stored
+// with an empty value.
+func checkMetadata(pairs map[string]string) error {
 	if _, malformed := pairs[""]; malformed {
-		return status.Error(codes.InvalidArgument, "a metadata filter pair needs a non-empty key")
+		return status.Error(codes.InvalidArgument, "a metadata pair needs a non-empty key")
 	}
 	return nil
 }

@@ -237,9 +237,15 @@ func TestMetadataAndSuppliedDateRoundTrip(t *testing.T) {
 	assert.Equal(t, map[string]string{"order": "42", "source": "checkout"}, transaction.Metadata)
 	assert.True(t, date.Equal(transaction.Date.AsTime()))
 
-	// A transaction with no metadata comes back as an empty map, not a null.
+	// A transaction with no metadata is an empty map, never a null. The wire
+	// cannot carry that distinction — proto3 encodes an empty map field and an
+	// absent one identically, so the map arrives nil and asserting it is empty
+	// would pass on a null too — so the assertion is on the stored JSON.
 	plain := h.mustRecord(transfer("key-2", "plain", opening, cash, usd(5, 0)))
-	assert.Empty(t, plain.Metadata)
+	var stored string
+	require.NoError(t, h.db.QueryRow(
+		"SELECT metadata FROM transactions WHERE id = $1", plain.Id).Scan(&stored))
+	assert.Equal(t, "{}", stored)
 }
 
 func TestEveryPostingCarriesTheTransactionDate(t *testing.T) {
@@ -382,7 +388,7 @@ func TestListTransactionsFiltersByExactMetadataPairs(t *testing.T) {
 	assert.Empty(t, all.Transactions[0].Metadata)
 }
 
-func TestAMetadataFilterWithAnEmptyKeyIsRefused(t *testing.T) {
+func TestAMetadataPairWithAnEmptyKeyIsRefused(t *testing.T) {
 	h := newHarness(t)
 
 	_, err := h.client.ListTransactions(h.ctx, &pb.ListTransactionsRequest{
@@ -393,6 +399,12 @@ func TestAMetadataFilterWithAnEmptyKeyIsRefused(t *testing.T) {
 	_, err = h.client.ListPostings(h.ctx, &pb.ListPostingsRequest{
 		Filter: &pb.PostingFilter{Metadata: map[string]string{"": "42"}},
 	})
+	requireCode(t, err, codes.InvalidArgument)
+
+	// The write path is as strict as the filter path: a pair no filter could
+	// ever ask for again is refused rather than stored.
+	_, err = h.client.RecordTransaction(h.ctx,
+		tagged(transfer("key-1", "note", opening, cash, usd(5, 0)), map[string]string{"": "x"}))
 	requireCode(t, err, codes.InvalidArgument)
 }
 

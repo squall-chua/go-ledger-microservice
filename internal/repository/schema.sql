@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (date);
+-- Metadata is only ever read with the containment operator, which is what GIN
+-- indexes; without this every metadata-filtered listing is a sequential scan.
+CREATE INDEX IF NOT EXISTS idx_transactions_metadata ON transactions USING GIN (metadata);
 
 CREATE TABLE IF NOT EXISTS postings (
     id             UUID PRIMARY KEY,
