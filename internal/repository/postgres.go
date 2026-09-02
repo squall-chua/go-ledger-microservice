@@ -31,6 +31,10 @@ var schemaSQL string
 // being recorded is already held by another transaction.
 var ErrIdempotencyKeyExists = errors.New("idempotency key already recorded")
 
+// ErrBalanceWouldGoNegative reports that the transaction would have left an
+// account the caller asked to verify with a negative balance.
+var ErrBalanceWouldGoNegative = errors.New("account would go negative")
+
 // ApplySchema creates the ledger schema if it is not already present. It is
 // safe to run on every startup.
 func ApplySchema(ctx context.Context, db *sql.DB) error {
@@ -66,6 +70,9 @@ type TransactionDraft struct {
 	Note           string
 	Metadata       map[string]string
 	Postings       []PostingDraft
+	// VerifyNonNegative are the accounts, matched exactly, that the whole
+	// transaction must not leave with a negative balance.
+	VerifyNonNegative []Account
 }
 
 // BalanceFilter narrows a balance read. Every field is optional and an empty
@@ -144,6 +151,9 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	}
 
 	postings := make([]*pb.Posting, 0, len(draft.Postings))
+	// The balance each touched account is left with once every posting has been
+	// applied, which is what the non-negative verification below judges.
+	finalBalances := make(map[Account]decimal.Decimal, len(draft.Postings))
 	for _, draftPosting := range draft.Postings {
 		// The upsert both applies the amount and returns the running balance of
 		// the account after this leg, under the row lock it takes itself.
@@ -164,6 +174,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 		if err != nil {
 			return nil, err
 		}
+		finalBalances[draftPosting.Account] = balance
 
 		postingID, err := uuid.NewV7()
 		if err != nil {
@@ -197,6 +208,16 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			Balance:   moneyfmt.FromDecimal(balance, draftPosting.CurrencyCode),
 			CreatedAt: timestamppb.New(postingCreatedAt),
 		})
+	}
+
+	// Verification happens once, after every posting has been applied, so a
+	// transaction that dips below zero and recovers within itself is accepted.
+	// An account named here but not touched cannot have moved, so it is skipped.
+	for _, account := range draft.VerifyNonNegative {
+		if balance, touched := finalBalances[account]; touched && balance.IsNegative() {
+			return nil, fmt.Errorf("%w: %s:%s:%s would be %s",
+				ErrBalanceWouldGoNegative, account.Type, account.User, account.Name, balance)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

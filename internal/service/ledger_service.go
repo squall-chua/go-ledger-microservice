@@ -33,6 +33,9 @@ func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTra
 
 	transaction, err := s.repo.RecordTransaction(ctx, draft)
 	if err != nil {
+		if errors.Is(err, repository.ErrBalanceWouldGoNegative) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
 		if errors.Is(err, repository.ErrIdempotencyKeyExists) {
 			return nil, status.Error(codes.AlreadyExists, "idempotency key already recorded")
 		}
@@ -111,12 +114,28 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 		return draft, status.Errorf(codes.InvalidArgument, "postings do not sum to zero (sum is %s)", sum.String())
 	}
 
+	// Accounts to verify are matched exactly, so each one has to be a complete
+	// account: nothing here is a pattern.
+	verify := make([]repository.Account, 0, len(req.VerifyNonNegativeBalances))
+	for i, toVerify := range req.VerifyNonNegativeBalances {
+		if toVerify == nil || toVerify.Type == pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+			return draft, status.Errorf(codes.InvalidArgument,
+				"verify_non_negative_balances %d is not a complete account", i)
+		}
+		verify = append(verify, repository.Account{
+			Type: accountfmt.AccountTypeToString(toVerify.Type),
+			User: toVerify.User,
+			Name: toVerify.Name,
+		})
+	}
+
 	return repository.TransactionDraft{
-		IdempotencyKey: req.IdempotencyKey,
-		Date:           date,
-		Note:           req.Note,
-		Metadata:       req.Metadata,
-		Postings:       postings,
+		IdempotencyKey:    req.IdempotencyKey,
+		Date:              date,
+		Note:              req.Note,
+		Metadata:          req.Metadata,
+		Postings:          postings,
+		VerifyNonNegative: verify,
 	}, nil
 }
 

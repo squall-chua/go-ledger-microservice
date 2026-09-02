@@ -165,6 +165,16 @@ func TestRecordTransactionRefusesAMalformedTransaction(t *testing.T) {
 				posting(opening, usd(-100, 0)),
 			},
 		},
+		"an incomplete account to verify": {
+			IdempotencyKey: "key", Note: "note",
+			Postings: []*pb.RecordTransactionRequest_PostingInput{
+				posting(cash, usd(100, 0)),
+				posting(opening, usd(-100, 0)),
+			},
+			VerifyNonNegativeBalances: []*pb.Account{
+				account(pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED, "alice", "Checking"),
+			},
+		},
 	}
 
 	for name, request := range cases {
@@ -312,4 +322,75 @@ func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {
 	balances := h.balances(&pb.ListAccountBalancesRequest{Account: cash})
 	require.Len(t, balances, 1, "usd and USD are one balance, not two")
 	assertMoney(t, usd(150, 0), balances[0].Balance)
+}
+
+func TestVerifyNonNegativeBalancesRefusesATransactionThatWouldGoNegative(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(transfer("opening", "opening deposit", opening, cash, usd(100, 0)))
+
+	overdraw := transfer("overdraw", "more than there is", cash, rent, usd(150, 0))
+	overdraw.VerifyNonNegativeBalances = []*pb.Account{cash}
+
+	_, err := h.record(overdraw)
+	requireCode(t, err, codes.FailedPrecondition)
+	assert.Contains(t, err.Error(), "ASSETS:alice:Checking", "the refusal names the account")
+
+	// The refusal leaves no trace. The balance snapshot is untouched, and the
+	// idempotency key is free again, so no transaction row survived — and a
+	// posting cannot outlive the transaction it belongs to.
+	balances := h.balances(&pb.ListAccountBalancesRequest{})
+	require.Len(t, balances, 2, "the refused transaction touched no new account")
+	assertMoney(t, usd(100, 0), balanceOf(t, balances, cash))
+	h.mustRecord(transfer("overdraw", "small enough", cash, rent, usd(10, 0)))
+}
+
+func TestVerifyNonNegativeBalancesLeavesUnnamedAccountsAlone(t *testing.T) {
+	h := newHarness(t)
+
+	request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
+	request.VerifyNonNegativeBalances = []*pb.Account{rent}
+
+	h.mustRecord(request)
+	assertMoney(t, usd(-50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+}
+
+func TestVerifyNonNegativeBalancesMatchesAccountsExactly(t *testing.T) {
+	h := newHarness(t)
+
+	// Every named account is a near miss on one part of the composite, and "*"
+	// is a literal name rather than a wildcard, so none of them guards the
+	// account this transaction actually drives negative.
+	request := transfer("spend", "spend money that is not there", cash, rent, usd(50, 0))
+	request.VerifyNonNegativeBalances = []*pb.Account{
+		account(pb.AccountType_ACCOUNT_TYPE_LIABILITIES, "alice", "Checking"),
+		account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "bob", "Checking"),
+		account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "alice", "Check"),
+		account(pb.AccountType_ACCOUNT_TYPE_ASSETS, "*", "*"),
+	}
+
+	h.mustRecord(request)
+	assertMoney(t, usd(-50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+}
+
+func TestATransactionThatDipsNegativeAndRecoversIsAccepted(t *testing.T) {
+	h := newHarness(t)
+
+	// Checking is empty, falls to -100 on the first posting and recovers to 50
+	// by the last. Only the balance left once every posting has been applied is
+	// verified, so this is accepted.
+	transaction := h.mustRecord(&pb.RecordTransactionRequest{
+		IdempotencyKey: "dip",
+		Note:           "dips and recovers within itself",
+		Postings: []*pb.RecordTransactionRequest_PostingInput{
+			posting(cash, usd(-100, 0)),
+			posting(rent, usd(100, 0)),
+			posting(opening, usd(-150, 0)),
+			posting(cash, usd(150, 0)),
+		},
+		VerifyNonNegativeBalances: []*pb.Account{cash},
+	})
+
+	assertMoney(t, usd(-100, 0), transaction.Postings[0].Balance)
+	assertMoney(t, usd(50, 0), transaction.Postings[3].Balance)
+	assertMoney(t, usd(50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
 }
