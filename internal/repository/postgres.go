@@ -253,6 +253,16 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			date = latest.Add(time.Microsecond)
 		}
 	case date.Before(latest):
+		// The check above the write path sees only a committed transaction, so a
+		// retry whose original committed while this attempt waited for the locks
+		// above arrives here instead. Consult the key once more before refusing:
+		// a caller retrying is owed the original transaction, not the news that
+		// the date it already recorded under is backdated.
+		tx.Rollback() //nolint:errcheck // the original is read outside this aborted transaction
+		replayed, err := r.recordedUnder(ctx, draft.IdempotencyKey, fingerprint)
+		if replayed != nil || err != nil {
+			return replayed, replayed != nil, err
+		}
 		return nil, false, fmt.Errorf("%w: %s:%s:%s already has a posting dated %s",
 			ErrBackdated, latestKey.Type, latestKey.User, latestKey.Name,
 			latest.UTC().Format(time.RFC3339Nano))

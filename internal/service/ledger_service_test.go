@@ -1125,6 +1125,71 @@ func TestTwoConcurrentIdenticalRequestsApplyExactlyOnce(t *testing.T) {
 		"the money was applied exactly once")
 }
 
+// The check for an already recorded key sees only committed rows, so a retry
+// can pass it and then wait on the balance row lock while its original commits
+// and a later transaction moves the account past its date. The retry must still
+// be answered as an idempotency replay: it is not the caller's date that is
+// wrong.
+//
+// Both events are staged from outside the service, in one transaction holding
+// the balance row, so the retry meets neither until it is already past that
+// check: the original is committed by moving it onto the retried key (the key
+// is not part of the fingerprint, so the row stays a genuine original for this
+// content), and the later transaction by advancing `last_date`.
+func TestARetryOvertakenWhileItWaitsIsStillAReplay(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(onDay(1, "opening", "opening deposit", opening, cash, usd(100, 0)))
+
+	// The same content under two keys: the one the caller retries, and the one
+	// the original is written under before it is moved onto that key below.
+	retried := onDay(2, "retried", "a deposit", opening, cash, usd(10, 0))
+	original := h.mustRecord(onDay(2, "original", "a deposit", opening, cash, usd(10, 0)))
+
+	locker, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer locker.Rollback() //nolint:errcheck // no-op once committed
+	_, err = locker.ExecContext(t.Context(),
+		"UPDATE transactions SET idempotency_key = $1 WHERE idempotency_key = $2", "retried", "original")
+	require.NoError(t, err)
+	_, err = locker.ExecContext(t.Context(),
+		"UPDATE account_balances SET last_date = $1 WHERE account_name = $2", day(3), cash.Name)
+	require.NoError(t, err)
+
+	type outcome struct {
+		response *pb.RecordTransactionResponse
+		err      error
+	}
+	outcomes := make(chan outcome, 1)
+	go func() {
+		response, err := h.record(retried)
+		outcomes <- outcome{response, err}
+	}()
+
+	// The retry is waiting on the locked balance row, which puts it past the
+	// check for an already recorded key and inside the write path.
+	require.Eventually(t, func() bool {
+		var waiting int
+		require.NoError(t, h.db.QueryRowContext(t.Context(), `
+			SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting))
+		return waiting > 0
+	}, 30*time.Second, 10*time.Millisecond, "the retry never reached the balance row lock")
+	require.NoError(t, locker.Commit())
+
+	var got outcome
+	select {
+	case got = <-outcomes:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the retry never returned")
+	}
+
+	require.NoError(t, got.err, "a retry must never be refused as backdated")
+	assert.True(t, got.response.Replayed)
+	assert.Equal(t, original.Id, got.response.Transaction.Id)
+	assert.EqualValues(t, 2, h.transactions(&pb.ListTransactionsRequest{}).TotalCount,
+		"the retry recorded nothing new")
+}
+
 // A caller who omits the date is stamped at whatever instant the ledger writes,
 // which differs between a request and its retry. The stamp is the ledger's, not
 // content, so it stays out of the fingerprint and the two still match.
