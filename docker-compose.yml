@@ -1,3 +1,13 @@
+# A local development stack. Every default here is a development value, and
+# none of them is fit to deploy:
+#
+#   - the JWT secret is the well-known one from the README, so anyone can mint
+#     a token that this ledger will trust
+#   - CORS allows any origin
+#   - Postgres uses postgres/postgres and publishes port 5432 on the host
+#
+# Set LEDGER_JWT_SECRET and LEDGER_CORS_ORIGINS for anything reachable by
+# someone else. See "Running the server" in README.md.
 services:
   postgres:
     image: postgres:17-alpine
