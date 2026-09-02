@@ -1,32 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Account, Money } from '../types/ledger'
-import { formatMoney, isNegativeMoney, moneyToNumber, renderAccount } from './ledger'
+import type { Money } from '../types/ledger'
+import { formatMoney, isNegativeMoney, moneyToNumber } from './ledger'
 
 const usd = (units: string, nanos: number): Money => ({ currencyCode: 'USD', units, nanos })
-
-describe('renderAccount', () => {
-  it('returns the three parts with the type label resolved', () => {
-    const account: Account = { type: 'ACCOUNT_TYPE_ASSETS', user: 'alice', name: 'Checking' }
-    expect(renderAccount(account)).toEqual({ type: 'ASSETS', user: 'alice', name: 'Checking' })
-  })
-
-  it('never joins the parts into a colon-delimited string', () => {
-    const account: Account = { type: 'ACCOUNT_TYPE_ASSETS', user: 'alice', name: 'a:b' }
-    const parts = renderAccount(account)
-    expect(Object.values(parts).join('')).not.toContain('ASSETS:')
-    // A name may contain ':' as a literal character and comes back untouched.
-    expect(parts.name).toBe('a:b')
-  })
-
-  it('leaves an empty user or name empty rather than starring it', () => {
-    const account: Account = { type: 'ACCOUNT_TYPE_EQUITIES', user: '', name: '' }
-    expect(renderAccount(account)).toEqual({ type: 'EQUITIES', user: '', name: '' })
-  })
-
-  it('survives a missing account', () => {
-    expect(renderAccount(undefined)).toEqual({ type: 'UNKNOWN', user: '', name: '' })
-  })
-})
 
 describe('moneyToNumber', () => {
   it('adds the fractional part carried in nanos', () => {

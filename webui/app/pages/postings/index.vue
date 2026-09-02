@@ -175,13 +175,13 @@
       >
         <div
           v-for="row in rows"
-          :key="row.posting.id"
+          :key="row.id"
           class="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
         >
           <div class="flex justify-between items-center mb-2">
             <div class="flex items-center gap-3">
               <span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-md text-gray-600 dark:text-gray-400">
-                {{ new Date(row.posting.date).toLocaleString() }}
+                {{ row.date }}
               </span>
               <span class="flex items-center gap-2 font-medium text-gray-900 dark:text-gray-100 font-mono">
                 <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ row.account.type }}</span>
@@ -189,16 +189,16 @@
                 <span>{{ row.account.name }}</span>
               </span>
             </div>
-            <span class="text-xs text-gray-400 font-mono">TX: {{ row.posting.transactionId?.substring(0, 8) }}</span>
+            <span class="text-xs text-gray-400 font-mono">TX: {{ row.transactionShortId }}</span>
           </div>
 
           <div class="flex justify-end text-sm mt-3 pl-2 sm:pl-10">
             <div class="flex items-center gap-4">
-              <span :class="['font-medium w-24 text-right', isNegativeMoney(row.posting.amount) ? 'text-red-500' : 'text-emerald-500']">
-                {{ formatMoney(row.posting.amount) }}
+              <span :class="['font-medium w-24 text-right', row.amount.negative ? 'text-red-500' : 'text-emerald-500']">
+                {{ row.amount.text }}
               </span>
               <span class="text-gray-400 w-40 text-right hidden sm:inline-block">
-                Balance {{ formatMoney(row.posting.balance) }}
+                Balance {{ row.balance.text }}
               </span>
             </div>
           </div>
@@ -279,10 +279,7 @@ const {
   pageSize: PAGE_SIZE
 })
 
-const rows = computed(() => postings.value.map(posting => ({
-  posting,
-  account: renderAccount(posting.account)
-})))
+const rows = computed(() => toPostingRows(postings.value))
 
 const clearFilters = () => {
   filters.value = emptyFilters()

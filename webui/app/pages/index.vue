@@ -40,7 +40,7 @@
         <div class="flex flex-col">
           <span class="text-blue-100 font-medium tracking-wide text-sm uppercase">Total Assets</span>
           <div class="mt-2 text-3xl font-bold">
-            {{ formatCurrency(totals.assets, selectedCurrency) }}
+            {{ totals.assets }}
           </div>
           <div class="mt-4 flex items-center text-sm text-blue-100">
             <UIcon
@@ -58,7 +58,7 @@
         <div class="flex flex-col">
           <span class="text-emerald-100 font-medium tracking-wide text-sm uppercase">Total Revenue</span>
           <div class="mt-2 text-3xl font-bold">
-            {{ formatCurrency(totals.revenue === 0 ? 0 : totals.revenue * -1, selectedCurrency) }}
+            {{ totals.revenue }}
           </div>
           <div class="mt-4 flex items-center text-sm text-emerald-100">
             <UIcon
@@ -76,7 +76,7 @@
         <div class="flex flex-col">
           <span class="text-rose-100 font-medium tracking-wide text-sm uppercase">Total Expenses</span>
           <div class="mt-2 text-3xl font-bold">
-            {{ formatCurrency(totals.expenses, selectedCurrency) }}
+            {{ totals.expenses }}
           </div>
           <div class="mt-4 flex items-center text-sm text-rose-100">
             <UIcon
@@ -163,7 +163,7 @@
                   Loading balances...
                 </td>
               </tr>
-              <tr v-else-if="!balances || balances.length === 0">
+              <tr v-else-if="rows.length === 0">
                 <td
                   colspan="4"
                   class="py-2 px-4 text-center text-xs text-gray-500"
@@ -172,28 +172,28 @@
                 </td>
               </tr>
               <tr
-                v-for="(row, i) in balances"
+                v-for="(row, i) in rows"
                 v-else
                 :key="i"
                 class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
               >
                 <td class="py-2 px-4 text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {{ renderAccount(row.account).type }}
+                  {{ row.account.type }}
                 </td>
                 <td class="py-2 px-4 text-xs text-gray-700 dark:text-gray-300">
-                  {{ renderAccount(row.account).user }}
+                  {{ row.account.user }}
                 </td>
                 <td class="py-2 px-4 text-xs text-gray-700 dark:text-gray-300">
-                  {{ renderAccount(row.account).name }}
+                  {{ row.account.name }}
                 </td>
                 <td class="py-2 px-4 text-xs text-right">
                   <span
                     :class="[
                       'font-medium',
-                      isNegativeMoney(row.balance) ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
+                      row.balance.negative ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'
                     ]"
                   >
-                    {{ formatMoney(row.balance) }}
+                    {{ row.balance.text }}
                   </span>
                 </td>
               </tr>
@@ -223,27 +223,6 @@ const { rows: balances, loading, error, refresh } = useLedgerQuery<ListAccountBa
   rows: response => response.balances
 })
 
-const totals = computed(() => {
-  let assets = 0, revenue = 0, expenses = 0
-  for (const balance of balances.value) {
-    const totalAmount = moneyToNumber(balance.balance)
-
-    switch (balance.account?.type) {
-      case 'ACCOUNT_TYPE_ASSETS':
-        assets += totalAmount
-        break
-      case 'ACCOUNT_TYPE_INCOMES':
-        revenue += totalAmount
-        break
-      case 'ACCOUNT_TYPE_EXPENSES':
-        expenses += totalAmount
-        break
-    }
-  }
-  return { assets, revenue, expenses }
-})
-
-const formatCurrency = (amount: number, currency: string = 'USD') => {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
-}
+const rows = computed(() => toBalanceRows(balances.value))
+const totals = computed(() => toBalanceTotals(balances.value, selectedCurrency.value))
 </script>
