@@ -1,0 +1,13 @@
+# Only ./cmd, ./internal and ./api are needed to build the server. Everything
+# else is context the daemon would copy for nothing — webui/node_modules alone
+# is hundreds of megabytes.
+.git
+.github
+.claude
+webui
+build
+target
+docs
+*.md
+Dockerfile
+docker-compose.yml

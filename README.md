@@ -85,6 +85,32 @@ One port serves both gRPC and REST, and Prometheus metrics are on `/metrics`.
 | `--jwt-secret` | `super-secret-key` | Symmetric key a service token is verified with |
 | `--cors-origins` | `*` | Comma-separated allowed CORS origins |
 
+### With Docker Compose
+
+`docker compose up --build` starts Postgres and the ledger together. The ledger
+waits for Postgres to accept connections, then applies the schema itself, so
+there is no migration step to run.
+
+```bash
+docker compose up --build
+```
+
+The ledger listens on `localhost:8080` and Postgres on `localhost:5432`.
+Ledger data is kept in a named volume, so it survives `docker compose down`;
+add `-v` to that command to throw it away.
+
+Both secrets default to the same development values used above. Override them
+in the environment when you want something else:
+
+```bash
+LEDGER_JWT_SECRET=another-secret docker compose up --build
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LEDGER_JWT_SECRET` | `super-secret-key` | Passed to `--jwt-secret` |
+| `LEDGER_CORS_ORIGINS` | `*` | Passed to `--cors-origins` |
+
 ## Tokens and scopes
 
 Every RPC except the gRPC health check needs a bearer token in the

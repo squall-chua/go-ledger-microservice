@@ -43,7 +43,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const { setToken } = useAuth()
+const { setToken, logout } = useAuth()
 const toast = useToast()
 
 const jwt = ref('')
@@ -70,9 +70,12 @@ const login = async () => {
         body: { account: {} }
       })
     } catch (apiErr: any) {
-      setToken('') // Clear invalid token
+      logout() // Clear the token the ledger would not accept
       if (apiErr.response?.status === 401) {
         throw new Error('Invalid or expired token. The server rejected it.')
+      }
+      if (apiErr.response?.status === 403) {
+        throw new Error('This token is valid but carries the wrong scopes. Reading needs ledger:read and recording needs ledger:write, and neither implies the other.')
       }
       throw new Error(`Server connection failed: ${apiErr.message}`)
     }
