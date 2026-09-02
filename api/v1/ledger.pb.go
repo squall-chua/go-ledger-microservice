@@ -147,29 +147,32 @@ func (MetadataFilter_Operator) EnumDescriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{8, 0}
 }
 
-type AccountName struct {
+// An Account is identified by the exact composite (type, user, name). There is
+// no hierarchy, no wildcard and no roll-up: `name` is opaque and every field is
+// matched exactly. See docs/adr/0002-flat-account-names.md.
+type Account struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          AccountType            `protobuf:"varint,1,opt,name=type,proto3,enum=v1.AccountType" json:"type,omitempty"`
-	User          string                 `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"` // Optional, can be empty or "*".
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"` // The specific account name or wildcard "*".
+	User          string                 `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"` // Free-form owner label. Never an authenticated identity.
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"` // Opaque label, e.g. "Checking". Never split, never rolled up.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AccountName) Reset() {
-	*x = AccountName{}
+func (x *Account) Reset() {
+	*x = Account{}
 	mi := &file_api_proto_v1_ledger_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AccountName) String() string {
+func (x *Account) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AccountName) ProtoMessage() {}
+func (*Account) ProtoMessage() {}
 
-func (x *AccountName) ProtoReflect() protoreflect.Message {
+func (x *Account) ProtoReflect() protoreflect.Message {
 	mi := &file_api_proto_v1_ledger_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -181,26 +184,26 @@ func (x *AccountName) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AccountName.ProtoReflect.Descriptor instead.
-func (*AccountName) Descriptor() ([]byte, []int) {
+// Deprecated: Use Account.ProtoReflect.Descriptor instead.
+func (*Account) Descriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AccountName) GetType() AccountType {
+func (x *Account) GetType() AccountType {
 	if x != nil {
 		return x.Type
 	}
 	return AccountType_ACCOUNT_TYPE_UNSPECIFIED
 }
 
-func (x *AccountName) GetUser() string {
+func (x *Account) GetUser() string {
 	if x != nil {
 		return x.User
 	}
 	return ""
 }
 
-func (x *AccountName) GetName() string {
+func (x *Account) GetName() string {
 	if x != nil {
 		return x.Name
 	}
@@ -211,10 +214,10 @@ type Posting struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	TransactionId string                 `protobuf:"bytes,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
-	Account       *AccountName           `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
+	Account       *Account               `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
 	Amount        *money.Money           `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	Balance       *money.Money           `protobuf:"bytes,5,opt,name=balance,proto3" json:"balance,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Balance       *money.Money           `protobuf:"bytes,5,opt,name=balance,proto3" json:"balance,omitempty"` // Running balance of the Account after this leg.
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -263,7 +266,7 @@ func (x *Posting) GetTransactionId() string {
 	return ""
 }
 
-func (x *Posting) GetAccount() *AccountName {
+func (x *Posting) GetAccount() *Account {
 	if x != nil {
 		return x.Account
 	}
@@ -297,7 +300,7 @@ type Transaction struct {
 	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	Date           *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=date,proto3" json:"date,omitempty"`
 	Note           string                 `protobuf:"bytes,4,opt,name=note,proto3" json:"note,omitempty"`
-	Metadata       map[string]*anypb.Any  `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata       map[string]string      `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Postings       []*Posting             `protobuf:"bytes,6,rep,name=postings,proto3" json:"postings,omitempty"`
 	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -362,7 +365,7 @@ func (x *Transaction) GetNote() string {
 	return ""
 }
 
-func (x *Transaction) GetMetadata() map[string]*anypb.Any {
+func (x *Transaction) GetMetadata() map[string]string {
 	if x != nil {
 		return x.Metadata
 	}
@@ -388,9 +391,9 @@ type RecordTransactionRequest struct {
 	IdempotencyKey            string                                   `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	Date                      *timestamppb.Timestamp                   `protobuf:"bytes,2,opt,name=date,proto3" json:"date,omitempty"`
 	Note                      string                                   `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
-	Metadata                  map[string]*anypb.Any                    `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata                  map[string]string                        `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Postings                  []*RecordTransactionRequest_PostingInput `protobuf:"bytes,5,rep,name=postings,proto3" json:"postings,omitempty"`
-	VerifyNonNegativeBalances []*AccountName                           `protobuf:"bytes,6,rep,name=verify_non_negative_balances,json=verifyNonNegativeBalances,proto3" json:"verify_non_negative_balances,omitempty"`
+	VerifyNonNegativeBalances []*Account                               `protobuf:"bytes,6,rep,name=verify_non_negative_balances,json=verifyNonNegativeBalances,proto3" json:"verify_non_negative_balances,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -446,7 +449,7 @@ func (x *RecordTransactionRequest) GetNote() string {
 	return ""
 }
 
-func (x *RecordTransactionRequest) GetMetadata() map[string]*anypb.Any {
+func (x *RecordTransactionRequest) GetMetadata() map[string]string {
 	if x != nil {
 		return x.Metadata
 	}
@@ -460,7 +463,7 @@ func (x *RecordTransactionRequest) GetPostings() []*RecordTransactionRequest_Pos
 	return nil
 }
 
-func (x *RecordTransactionRequest) GetVerifyNonNegativeBalances() []*AccountName {
+func (x *RecordTransactionRequest) GetVerifyNonNegativeBalances() []*Account {
 	if x != nil {
 		return x.VerifyNonNegativeBalances
 	}
@@ -511,28 +514,31 @@ func (x *RecordTransactionResponse) GetTransaction() *Transaction {
 	return nil
 }
 
-type GetAccountBalanceRequest struct {
+// Every filter is optional; supplying none returns the Trial balance.
+// An unspecified account type, an empty user and an empty name each mean
+// "not filtered" here — they are never a wildcard in the data.
+type ListAccountBalancesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Account       *AccountName           `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`   // Structured target. Empty user or name fields will be treated as wildcards like `*`.
-	Currency      string                 `protobuf:"bytes,2,opt,name=currency,proto3" json:"currency,omitempty"` // Optional currency filter
+	Account       *Account               `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	CurrencyCode  string                 `protobuf:"bytes,2,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetAccountBalanceRequest) Reset() {
-	*x = GetAccountBalanceRequest{}
+func (x *ListAccountBalancesRequest) Reset() {
+	*x = ListAccountBalancesRequest{}
 	mi := &file_api_proto_v1_ledger_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetAccountBalanceRequest) String() string {
+func (x *ListAccountBalancesRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetAccountBalanceRequest) ProtoMessage() {}
+func (*ListAccountBalancesRequest) ProtoMessage() {}
 
-func (x *GetAccountBalanceRequest) ProtoReflect() protoreflect.Message {
+func (x *ListAccountBalancesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_api_proto_v1_ledger_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -544,46 +550,46 @@ func (x *GetAccountBalanceRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetAccountBalanceRequest.ProtoReflect.Descriptor instead.
-func (*GetAccountBalanceRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListAccountBalancesRequest.ProtoReflect.Descriptor instead.
+func (*ListAccountBalancesRequest) Descriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetAccountBalanceRequest) GetAccount() *AccountName {
+func (x *ListAccountBalancesRequest) GetAccount() *Account {
 	if x != nil {
 		return x.Account
 	}
 	return nil
 }
 
-func (x *GetAccountBalanceRequest) GetCurrency() string {
+func (x *ListAccountBalancesRequest) GetCurrencyCode() string {
 	if x != nil {
-		return x.Currency
+		return x.CurrencyCode
 	}
 	return ""
 }
 
-type GetAccountBalanceResponse struct {
+type ListAccountBalancesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Balances      []*AccountBalance      `protobuf:"bytes,1,rep,name=balances,proto3" json:"balances,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetAccountBalanceResponse) Reset() {
-	*x = GetAccountBalanceResponse{}
+func (x *ListAccountBalancesResponse) Reset() {
+	*x = ListAccountBalancesResponse{}
 	mi := &file_api_proto_v1_ledger_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetAccountBalanceResponse) String() string {
+func (x *ListAccountBalancesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetAccountBalanceResponse) ProtoMessage() {}
+func (*ListAccountBalancesResponse) ProtoMessage() {}
 
-func (x *GetAccountBalanceResponse) ProtoReflect() protoreflect.Message {
+func (x *ListAccountBalancesResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_api_proto_v1_ledger_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -595,12 +601,12 @@ func (x *GetAccountBalanceResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetAccountBalanceResponse.ProtoReflect.Descriptor instead.
-func (*GetAccountBalanceResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListAccountBalancesResponse.ProtoReflect.Descriptor instead.
+func (*ListAccountBalancesResponse) Descriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *GetAccountBalanceResponse) GetBalances() []*AccountBalance {
+func (x *ListAccountBalancesResponse) GetBalances() []*AccountBalance {
 	if x != nil {
 		return x.Balances
 	}
@@ -609,7 +615,7 @@ func (x *GetAccountBalanceResponse) GetBalances() []*AccountBalance {
 
 type AccountBalance struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Account       *AccountName           `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Account       *Account               `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
 	Balance       *money.Money           `protobuf:"bytes,2,opt,name=balance,proto3" json:"balance,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -646,7 +652,7 @@ func (*AccountBalance) Descriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *AccountBalance) GetAccount() *AccountName {
+func (x *AccountBalance) GetAccount() *Account {
 	if x != nil {
 		return x.Account
 	}
@@ -733,9 +739,9 @@ type TransactionFilter struct {
 	IdempotencyKey  []string               `protobuf:"bytes,2,rep,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	StartDate       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`
 	EndDate         *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`
-	Note            string                 `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"` // Partial match on the transaction note (wildcards supported by the repository adapter)
+	Note            string                 `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"`
 	MetadataFilters []*MetadataFilter      `protobuf:"bytes,6,rep,name=metadata_filters,json=metadataFilters,proto3" json:"metadata_filters,omitempty"`
-	Currency        string                 `protobuf:"bytes,7,opt,name=currency,proto3" json:"currency,omitempty"` // Optional currency filter for transactions
+	Currency        string                 `protobuf:"bytes,7,opt,name=currency,proto3" json:"currency,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -944,7 +950,7 @@ type PostingFilter struct {
 	TransactionFilter *TransactionFilter     `protobuf:"bytes,1,opt,name=transaction_filter,json=transactionFilter,proto3" json:"transaction_filter,omitempty"` // Carry over all transaction-level filters to filter the postings.
 	Id                []string               `protobuf:"bytes,2,rep,name=id,proto3" json:"id,omitempty"`
 	TransactionId     []string               `protobuf:"bytes,3,rep,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
-	Account           *AccountName           `protobuf:"bytes,4,opt,name=account,proto3" json:"account,omitempty"` // Structured target. Unspecified account type, empty user or name fields will be treated as wildcards like `*`.
+	Account           *Account               `protobuf:"bytes,4,opt,name=account,proto3" json:"account,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -1000,7 +1006,7 @@ func (x *PostingFilter) GetTransactionId() []string {
 	return nil
 }
 
-func (x *PostingFilter) GetAccount() *AccountName {
+func (x *PostingFilter) GetAccount() *Account {
 	if x != nil {
 		return x.Account
 	}
@@ -1129,7 +1135,7 @@ func (x *ListPostingsResponse) GetTotalCount() int64 {
 
 type RecordTransactionRequest_PostingInput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Account       *AccountName           `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Account       *Account               `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
 	Amount        *money.Money           `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1165,7 +1171,7 @@ func (*RecordTransactionRequest_PostingInput) Descriptor() ([]byte, []int) {
 	return file_api_proto_v1_ledger_proto_rawDescGZIP(), []int{3, 1}
 }
 
-func (x *RecordTransactionRequest_PostingInput) GetAccount() *AccountName {
+func (x *RecordTransactionRequest_PostingInput) GetAccount() *Account {
 	if x != nil {
 		return x.Account
 	}
@@ -1183,19 +1189,19 @@ var File_api_proto_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\n" +
-	"\x19api/proto/v1/ledger.proto\x12\x02v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19google/protobuf/any.proto\x1a\x17google/type/money.proto\x1a\x1aapi/proto/v1/options.proto\"Z\n" +
-	"\vAccountName\x12#\n" +
+	"\x19api/proto/v1/ledger.proto\x12\x02v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19google/protobuf/any.proto\x1a\x17google/type/money.proto\x1a\x1aapi/proto/v1/options.proto\"V\n" +
+	"\aAccount\x12#\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x0f.v1.AccountTypeR\x04type\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\"\x80\x02\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"\xfc\x01\n" +
 	"\aPosting\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
-	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12)\n" +
-	"\aaccount\x18\x03 \x01(\v2\x0f.v1.AccountNameR\aaccount\x12*\n" +
+	"\x0etransaction_id\x18\x02 \x01(\tR\rtransactionId\x12%\n" +
+	"\aaccount\x18\x03 \x01(\v2\v.v1.AccountR\aaccount\x12*\n" +
 	"\x06amount\x18\x04 \x01(\v2\x12.google.type.MoneyR\x06amount\x12,\n" +
 	"\abalance\x18\x05 \x01(\v2\x12.google.type.MoneyR\abalance\x129\n" +
 	"\n" +
-	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xfc\x02\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xe6\x02\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12.\n" +
@@ -1204,32 +1210,32 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\bmetadata\x18\x05 \x03(\v2\x1d.v1.Transaction.MetadataEntryR\bmetadata\x12'\n" +
 	"\bpostings\x18\x06 \x03(\v2\v.v1.PostingR\bpostings\x129\n" +
 	"\n" +
-	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x1aQ\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
-	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01\"\xa2\x04\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x84\x04\n" +
 	"\x18RecordTransactionRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12.\n" +
 	"\x04date\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04date\x12\x12\n" +
 	"\x04note\x18\x03 \x01(\tR\x04note\x12F\n" +
 	"\bmetadata\x18\x04 \x03(\v2*.v1.RecordTransactionRequest.MetadataEntryR\bmetadata\x12E\n" +
-	"\bpostings\x18\x05 \x03(\v2).v1.RecordTransactionRequest.PostingInputR\bpostings\x12P\n" +
-	"\x1cverify_non_negative_balances\x18\x06 \x03(\v2\x0f.v1.AccountNameR\x19verifyNonNegativeBalances\x1aQ\n" +
+	"\bpostings\x18\x05 \x03(\v2).v1.RecordTransactionRequest.PostingInputR\bpostings\x12L\n" +
+	"\x1cverify_non_negative_balances\x18\x06 \x03(\v2\v.v1.AccountR\x19verifyNonNegativeBalances\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
-	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01\x1ae\n" +
-	"\fPostingInput\x12)\n" +
-	"\aaccount\x18\x01 \x01(\v2\x0f.v1.AccountNameR\aaccount\x12*\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aa\n" +
+	"\fPostingInput\x12%\n" +
+	"\aaccount\x18\x01 \x01(\v2\v.v1.AccountR\aaccount\x12*\n" +
 	"\x06amount\x18\x02 \x01(\v2\x12.google.type.MoneyR\x06amount\"N\n" +
 	"\x19RecordTransactionResponse\x121\n" +
-	"\vtransaction\x18\x01 \x01(\v2\x0f.v1.TransactionR\vtransaction\"a\n" +
-	"\x18GetAccountBalanceRequest\x12)\n" +
-	"\aaccount\x18\x01 \x01(\v2\x0f.v1.AccountNameR\aaccount\x12\x1a\n" +
-	"\bcurrency\x18\x02 \x01(\tR\bcurrency\"K\n" +
-	"\x19GetAccountBalanceResponse\x12.\n" +
-	"\bbalances\x18\x01 \x03(\v2\x12.v1.AccountBalanceR\bbalances\"\xa4\x01\n" +
-	"\x0eAccountBalance\x12)\n" +
-	"\aaccount\x18\x01 \x01(\v2\x0f.v1.AccountNameR\aaccount\x12,\n" +
+	"\vtransaction\x18\x01 \x01(\v2\x0f.v1.TransactionR\vtransaction\"h\n" +
+	"\x1aListAccountBalancesRequest\x12%\n" +
+	"\aaccount\x18\x01 \x01(\v2\v.v1.AccountR\aaccount\x12#\n" +
+	"\rcurrency_code\x18\x02 \x01(\tR\fcurrencyCode\"M\n" +
+	"\x1bListAccountBalancesResponse\x12.\n" +
+	"\bbalances\x18\x01 \x03(\v2\x12.v1.AccountBalanceR\bbalances\"\xa0\x01\n" +
+	"\x0eAccountBalance\x12%\n" +
+	"\aaccount\x18\x01 \x01(\v2\v.v1.AccountR\aaccount\x12,\n" +
 	"\abalance\x18\x02 \x01(\v2\x12.google.type.MoneyR\abalance\x129\n" +
 	"\n" +
 	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xee\x02\n" +
@@ -1264,12 +1270,12 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\x18ListTransactionsResponse\x123\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x0f.v1.TransactionR\ftransactions\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"\xb7\x01\n" +
+	"totalCount\"\xb3\x01\n" +
 	"\rPostingFilter\x12D\n" +
 	"\x12transaction_filter\x18\x01 \x01(\v2\x15.v1.TransactionFilterR\x11transactionFilter\x12\x0e\n" +
 	"\x02id\x18\x02 \x03(\tR\x02id\x12%\n" +
-	"\x0etransaction_id\x18\x03 \x03(\tR\rtransactionId\x12)\n" +
-	"\aaccount\x18\x04 \x01(\v2\x0f.v1.AccountNameR\aaccount\"\xa2\x01\n" +
+	"\x0etransaction_id\x18\x03 \x03(\tR\rtransactionId\x12%\n" +
+	"\aaccount\x18\x04 \x01(\v2\v.v1.AccountR\aaccount\"\xa2\x01\n" +
 	"\x13ListPostingsRequest\x12)\n" +
 	"\x06filter\x18\x01 \x01(\v2\x11.v1.PostingFilterR\x06filter\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1f\n" +
@@ -1286,10 +1292,10 @@ const file_api_proto_v1_ledger_proto_rawDesc = "" +
 	"\x18ACCOUNT_TYPE_LIABILITIES\x10\x02\x12\x19\n" +
 	"\x15ACCOUNT_TYPE_EQUITIES\x10\x03\x12\x18\n" +
 	"\x14ACCOUNT_TYPE_INCOMES\x10\x04\x12\x19\n" +
-	"\x15ACCOUNT_TYPE_EXPENSES\x10\x052\xa2\x04\n" +
+	"\x15ACCOUNT_TYPE_EXPENSES\x10\x052\xa8\x04\n" +
 	"\rLedgerService\x12\x85\x01\n" +
-	"\x11RecordTransaction\x12\x1c.v1.RecordTransactionRequest\x1a\x1d.v1.RecordTransactionResponse\"3\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/v1/ledger/transactions\x12\x89\x01\n" +
-	"\x11GetAccountBalance\x12\x1c.v1.GetAccountBalanceRequest\x1a\x1d.v1.GetAccountBalanceResponse\"7\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/ledger/accounts/balance\x12\x82\x01\n" +
+	"\x11RecordTransaction\x12\x1c.v1.RecordTransactionRequest\x1a\x1d.v1.RecordTransactionResponse\"3\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/v1/ledger/transactions\x12\x8f\x01\n" +
+	"\x13ListAccountBalances\x12\x1e.v1.ListAccountBalancesRequest\x1a\x1f.v1.ListAccountBalancesResponse\"7\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/v1/ledger/accounts/balance\x12\x82\x01\n" +
 	"\x10ListTransactions\x12\x1b.v1.ListTransactionsRequest\x1a\x1c.v1.ListTransactionsResponse\"3\x82\xb5\x18\a\x12\x05admin\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/v1/ledger/transactions/query\x12x\n" +
 	"\fListPostings\x12\x17.v1.ListPostingsRequest\x1a\x18.v1.ListPostingsResponse\"5\x82\xb5\x18\r\x12\x05admin\x12\x04user\x82\xd3\xe4\x93\x02\x1e:\x01*\"\x19/v1/ledger/postings/queryB6Z4github.com/squall-chua/go-ledger-microservice/api/v1b\x06proto3"
 
@@ -1310,13 +1316,13 @@ var file_api_proto_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_api_proto_v1_ledger_proto_goTypes = []any{
 	(AccountType)(0),                              // 0: v1.AccountType
 	(MetadataFilter_Operator)(0),                  // 1: v1.MetadataFilter.Operator
-	(*AccountName)(nil),                           // 2: v1.AccountName
+	(*Account)(nil),                               // 2: v1.Account
 	(*Posting)(nil),                               // 3: v1.Posting
 	(*Transaction)(nil),                           // 4: v1.Transaction
 	(*RecordTransactionRequest)(nil),              // 5: v1.RecordTransactionRequest
 	(*RecordTransactionResponse)(nil),             // 6: v1.RecordTransactionResponse
-	(*GetAccountBalanceRequest)(nil),              // 7: v1.GetAccountBalanceRequest
-	(*GetAccountBalanceResponse)(nil),             // 8: v1.GetAccountBalanceResponse
+	(*ListAccountBalancesRequest)(nil),            // 7: v1.ListAccountBalancesRequest
+	(*ListAccountBalancesResponse)(nil),           // 8: v1.ListAccountBalancesResponse
 	(*AccountBalance)(nil),                        // 9: v1.AccountBalance
 	(*MetadataFilter)(nil),                        // 10: v1.MetadataFilter
 	(*TransactionFilter)(nil),                     // 11: v1.TransactionFilter
@@ -1333,8 +1339,8 @@ var file_api_proto_v1_ledger_proto_goTypes = []any{
 	(*anypb.Any)(nil),                             // 22: google.protobuf.Any
 }
 var file_api_proto_v1_ledger_proto_depIdxs = []int32{
-	0,  // 0: v1.AccountName.type:type_name -> v1.AccountType
-	2,  // 1: v1.Posting.account:type_name -> v1.AccountName
+	0,  // 0: v1.Account.type:type_name -> v1.AccountType
+	2,  // 1: v1.Posting.account:type_name -> v1.Account
 	20, // 2: v1.Posting.amount:type_name -> google.type.Money
 	20, // 3: v1.Posting.balance:type_name -> google.type.Money
 	21, // 4: v1.Posting.created_at:type_name -> google.protobuf.Timestamp
@@ -1345,11 +1351,11 @@ var file_api_proto_v1_ledger_proto_depIdxs = []int32{
 	21, // 9: v1.RecordTransactionRequest.date:type_name -> google.protobuf.Timestamp
 	18, // 10: v1.RecordTransactionRequest.metadata:type_name -> v1.RecordTransactionRequest.MetadataEntry
 	19, // 11: v1.RecordTransactionRequest.postings:type_name -> v1.RecordTransactionRequest.PostingInput
-	2,  // 12: v1.RecordTransactionRequest.verify_non_negative_balances:type_name -> v1.AccountName
+	2,  // 12: v1.RecordTransactionRequest.verify_non_negative_balances:type_name -> v1.Account
 	4,  // 13: v1.RecordTransactionResponse.transaction:type_name -> v1.Transaction
-	2,  // 14: v1.GetAccountBalanceRequest.account:type_name -> v1.AccountName
-	9,  // 15: v1.GetAccountBalanceResponse.balances:type_name -> v1.AccountBalance
-	2,  // 16: v1.AccountBalance.account:type_name -> v1.AccountName
+	2,  // 14: v1.ListAccountBalancesRequest.account:type_name -> v1.Account
+	9,  // 15: v1.ListAccountBalancesResponse.balances:type_name -> v1.AccountBalance
+	2,  // 16: v1.AccountBalance.account:type_name -> v1.Account
 	20, // 17: v1.AccountBalance.balance:type_name -> google.type.Money
 	21, // 18: v1.AccountBalance.updated_at:type_name -> google.protobuf.Timestamp
 	1,  // 19: v1.MetadataFilter.operator:type_name -> v1.MetadataFilter.Operator
@@ -1360,26 +1366,24 @@ var file_api_proto_v1_ledger_proto_depIdxs = []int32{
 	11, // 24: v1.ListTransactionsRequest.filter:type_name -> v1.TransactionFilter
 	4,  // 25: v1.ListTransactionsResponse.transactions:type_name -> v1.Transaction
 	11, // 26: v1.PostingFilter.transaction_filter:type_name -> v1.TransactionFilter
-	2,  // 27: v1.PostingFilter.account:type_name -> v1.AccountName
+	2,  // 27: v1.PostingFilter.account:type_name -> v1.Account
 	14, // 28: v1.ListPostingsRequest.filter:type_name -> v1.PostingFilter
 	3,  // 29: v1.ListPostingsResponse.postings:type_name -> v1.Posting
-	22, // 30: v1.Transaction.MetadataEntry.value:type_name -> google.protobuf.Any
-	22, // 31: v1.RecordTransactionRequest.MetadataEntry.value:type_name -> google.protobuf.Any
-	2,  // 32: v1.RecordTransactionRequest.PostingInput.account:type_name -> v1.AccountName
-	20, // 33: v1.RecordTransactionRequest.PostingInput.amount:type_name -> google.type.Money
-	5,  // 34: v1.LedgerService.RecordTransaction:input_type -> v1.RecordTransactionRequest
-	7,  // 35: v1.LedgerService.GetAccountBalance:input_type -> v1.GetAccountBalanceRequest
-	12, // 36: v1.LedgerService.ListTransactions:input_type -> v1.ListTransactionsRequest
-	15, // 37: v1.LedgerService.ListPostings:input_type -> v1.ListPostingsRequest
-	6,  // 38: v1.LedgerService.RecordTransaction:output_type -> v1.RecordTransactionResponse
-	8,  // 39: v1.LedgerService.GetAccountBalance:output_type -> v1.GetAccountBalanceResponse
-	13, // 40: v1.LedgerService.ListTransactions:output_type -> v1.ListTransactionsResponse
-	16, // 41: v1.LedgerService.ListPostings:output_type -> v1.ListPostingsResponse
-	38, // [38:42] is the sub-list for method output_type
-	34, // [34:38] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	2,  // 30: v1.RecordTransactionRequest.PostingInput.account:type_name -> v1.Account
+	20, // 31: v1.RecordTransactionRequest.PostingInput.amount:type_name -> google.type.Money
+	5,  // 32: v1.LedgerService.RecordTransaction:input_type -> v1.RecordTransactionRequest
+	7,  // 33: v1.LedgerService.ListAccountBalances:input_type -> v1.ListAccountBalancesRequest
+	12, // 34: v1.LedgerService.ListTransactions:input_type -> v1.ListTransactionsRequest
+	15, // 35: v1.LedgerService.ListPostings:input_type -> v1.ListPostingsRequest
+	6,  // 36: v1.LedgerService.RecordTransaction:output_type -> v1.RecordTransactionResponse
+	8,  // 37: v1.LedgerService.ListAccountBalances:output_type -> v1.ListAccountBalancesResponse
+	13, // 38: v1.LedgerService.ListTransactions:output_type -> v1.ListTransactionsResponse
+	16, // 39: v1.LedgerService.ListPostings:output_type -> v1.ListPostingsResponse
+	36, // [36:40] is the sub-list for method output_type
+	32, // [32:36] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_v1_ledger_proto_init() }

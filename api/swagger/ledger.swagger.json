@@ -18,12 +18,12 @@
   "paths": {
     "/v1/ledger/accounts/balance": {
       "post": {
-        "operationId": "LedgerService_GetAccountBalance",
+        "operationId": "LedgerService_ListAccountBalances",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/v1GetAccountBalanceResponse"
+              "$ref": "#/definitions/v1ListAccountBalancesResponse"
             }
           },
           "default": {
@@ -36,10 +36,11 @@
         "parameters": [
           {
             "name": "body",
+            "description": "Every filter is optional; supplying none returns the Trial balance.\nAn unspecified account type, an empty user and an empty name each mean\n\"not filtered\" here — they are never a wildcard in the data.",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/v1GetAccountBalanceRequest"
+              "$ref": "#/definitions/v1ListAccountBalancesRequest"
             }
           }
         ],
@@ -165,7 +166,7 @@
       "type": "object",
       "properties": {
         "account": {
-          "$ref": "#/definitions/v1AccountName"
+          "$ref": "#/definitions/v1Account"
         },
         "amount": {
           "$ref": "#/definitions/typeMoney"
@@ -222,22 +223,7 @@
       },
       "description": "Represents an amount of money with its currency type."
     },
-    "v1AccountBalance": {
-      "type": "object",
-      "properties": {
-        "account": {
-          "$ref": "#/definitions/v1AccountName"
-        },
-        "balance": {
-          "$ref": "#/definitions/typeMoney"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      }
-    },
-    "v1AccountName": {
+    "v1Account": {
       "type": "object",
       "properties": {
         "type": {
@@ -245,11 +231,27 @@
         },
         "user": {
           "type": "string",
-          "description": "Optional, can be empty or \"*\"."
+          "description": "Free-form owner label. Never an authenticated identity."
         },
         "name": {
           "type": "string",
-          "description": "The specific account name or wildcard \"*\"."
+          "description": "Opaque label, e.g. \"Checking\". Never split, never rolled up."
+        }
+      },
+      "description": "An Account is identified by the exact composite (type, user, name). There is\nno hierarchy, no wildcard and no roll-up: `name` is opaque and every field is\nmatched exactly. See docs/adr/0002-flat-account-names.md."
+    },
+    "v1AccountBalance": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/v1Account"
+        },
+        "balance": {
+          "$ref": "#/definitions/typeMoney"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -265,20 +267,19 @@
       ],
       "default": "ACCOUNT_TYPE_UNSPECIFIED"
     },
-    "v1GetAccountBalanceRequest": {
+    "v1ListAccountBalancesRequest": {
       "type": "object",
       "properties": {
         "account": {
-          "$ref": "#/definitions/v1AccountName",
-          "description": "Structured target. Empty user or name fields will be treated as wildcards like `*`."
+          "$ref": "#/definitions/v1Account"
         },
-        "currency": {
-          "type": "string",
-          "title": "Optional currency filter"
+        "currencyCode": {
+          "type": "string"
         }
-      }
+      },
+      "description": "Every filter is optional; supplying none returns the Trial balance.\nAn unspecified account type, an empty user and an empty name each mean\n\"not filtered\" here — they are never a wildcard in the data."
     },
-    "v1GetAccountBalanceResponse": {
+    "v1ListAccountBalancesResponse": {
       "type": "object",
       "properties": {
         "balances": {
@@ -388,13 +389,14 @@
           "type": "string"
         },
         "account": {
-          "$ref": "#/definitions/v1AccountName"
+          "$ref": "#/definitions/v1Account"
         },
         "amount": {
           "$ref": "#/definitions/typeMoney"
         },
         "balance": {
-          "$ref": "#/definitions/typeMoney"
+          "$ref": "#/definitions/typeMoney",
+          "description": "Running balance of the Account after this leg."
         },
         "createdAt": {
           "type": "string",
@@ -422,8 +424,7 @@
           }
         },
         "account": {
-          "$ref": "#/definitions/v1AccountName",
-          "description": "Structured target. Unspecified account type, empty user or name fields will be treated as wildcards like `*`."
+          "$ref": "#/definitions/v1Account"
         }
       }
     },
@@ -443,7 +444,7 @@
         "metadata": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "string"
           }
         },
         "postings": {
@@ -457,7 +458,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "$ref": "#/definitions/v1AccountName"
+            "$ref": "#/definitions/v1Account"
           }
         }
       }
@@ -489,7 +490,7 @@
         "metadata": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/protobufAny"
+            "type": "string"
           }
         },
         "postings": {
@@ -529,8 +530,7 @@
           "format": "date-time"
         },
         "note": {
-          "type": "string",
-          "title": "Partial match on the transaction note (wildcards supported by the repository adapter)"
+          "type": "string"
         },
         "metadataFilters": {
           "type": "array",
@@ -540,8 +540,7 @@
           }
         },
         "currency": {
-          "type": "string",
-          "title": "Optional currency filter for transactions"
+          "type": "string"
         }
       }
     }

@@ -71,6 +71,52 @@ func TestToDecimal(t *testing.T) {
 			expected:      decimal.RequireFromString("-0.99"),
 			expectedError: false,
 		},
+		{
+			name: "Empty currency code",
+			money: &money.Money{
+				CurrencyCode: "",
+				Units:        1,
+				Nanos:        0,
+			},
+			expectedError: true,
+		},
+		{
+			name: "Nanos above range",
+			money: &money.Money{
+				CurrencyCode: "USD",
+				Units:        1,
+				Nanos:        1000000000,
+			},
+			expectedError: true,
+		},
+		{
+			name: "Nanos below range",
+			money: &money.Money{
+				CurrencyCode: "USD",
+				Units:        -1,
+				Nanos:        -1000000000,
+			},
+			expectedError: true,
+		},
+		{
+			name: "Units and nanos disagree on sign",
+			money: &money.Money{
+				CurrencyCode: "USD",
+				Units:        1,
+				Nanos:        -500000000,
+			},
+			expectedError: true,
+		},
+		{
+			name: "Nine digit precision",
+			money: &money.Money{
+				CurrencyCode: "USD",
+				Units:        1,
+				Nanos:        123456789,
+			},
+			expected:      decimal.RequireFromString("1.123456789"),
+			expectedError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -142,5 +188,20 @@ func TestFromDecimal(t *testing.T) {
 			assert.Equal(t, tt.expected.Units, result.Units)
 			assert.Equal(t, tt.expected.Nanos, result.Nanos)
 		})
+	}
+}
+
+func TestRoundTripAtNineDigits(t *testing.T) {
+	for _, in := range []*money.Money{
+		{CurrencyCode: "USD", Units: 1, Nanos: 123456789},
+		{CurrencyCode: "USD", Units: -1, Nanos: -123456789},
+		{CurrencyCode: "USD", Units: 0, Nanos: 1},
+		{CurrencyCode: "USD", Units: 9999999, Nanos: 999999999},
+	} {
+		d, err := ToDecimal(in)
+		assert.NoError(t, err)
+		out := FromDecimal(d, in.CurrencyCode)
+		assert.Equal(t, in.Units, out.Units)
+		assert.Equal(t, in.Nanos, out.Nanos)
 	}
 }

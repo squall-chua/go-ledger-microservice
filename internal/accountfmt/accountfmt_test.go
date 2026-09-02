@@ -14,9 +14,9 @@ func TestAccountTypeToString(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "Unspecified",
+			name:     "Unspecified has no stored form",
 			accType:  pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
-			expected: "*",
+			expected: "",
 		},
 		{
 			name:     "Assets",
@@ -94,155 +94,12 @@ func TestStringToAccountType(t *testing.T) {
 			strType:  "",
 			expected: pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
 		},
-		{
-			name:     "Wildcard",
-			strType:  "*",
-			expected: pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := StringToAccountType(tt.strType)
 			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestBuildString(t *testing.T) {
-	tests := []struct {
-		name     string
-		accName  *pb.AccountName
-		expected string
-	}{
-		{
-			name:     "Nil account name",
-			accName:  nil,
-			expected: "*",
-		},
-		{
-			name: "All wildcard",
-			accName: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
-				User: "",
-				Name: "",
-			},
-			expected: "*",
-		},
-		{
-			name: "Type provided, user and name empty",
-			accName: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_ASSETS,
-				User: "",
-				Name: "",
-			},
-			expected: "ASSETS:*:*",
-		},
-		{
-			name: "Type and name provided, user empty",
-			accName: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_ASSETS,
-				User: "",
-				Name: "Cash",
-			},
-			expected: "ASSETS:*:Cash",
-		},
-		{
-			name: "Full details provided",
-			accName: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_LIABILITIES,
-				User: "user-123",
-				Name: "Credit",
-			},
-			expected: "LIABILITIES:user-123:Credit",
-		},
-		{
-			name: "Wildcards provided explicitly",
-			accName: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
-				User: "*",
-				Name: "*",
-			},
-			expected: "*",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := BuildString(tt.accName)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestParseString(t *testing.T) {
-	tests := []struct {
-		name     string
-		str      string
-		expected *pb.AccountName
-	}{
-		{
-			name: "Empty string",
-			str:  "",
-			expected: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
-				User: "*",
-				Name: "*",
-			},
-		},
-		{
-			name: "Wildcard string",
-			str:  "*",
-			expected: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED,
-				User: "*",
-				Name: "*",
-			},
-		},
-		{
-			name: "Only Type",
-			str:  "ASSETS",
-			expected: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_ASSETS,
-				User: "*",
-				Name: "*",
-			},
-		},
-		{
-			name: "Type and Name (2 parts)",
-			str:  "ASSETS:Cash",
-			expected: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_ASSETS,
-				User: "*",
-				Name: "Cash",
-			},
-		},
-		{
-			name: "Full Type User Name (3 parts)",
-			str:  "LIABILITIES:user-123:Credit",
-			expected: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_LIABILITIES,
-				User: "user-123",
-				Name: "Credit",
-			},
-		},
-		{
-			name: "Too many colons",
-			str:  "ASSETS:user-123:Credit:Extra",
-			expected: &pb.AccountName{
-				Type: pb.AccountType_ACCOUNT_TYPE_ASSETS,
-				User: "user-123",
-				Name: "Credit:Extra", // SplitN with 3 limits output length
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ParseString(tt.str)
-			assert.Equal(t, tt.expected.Type, result.Type)
-			assert.Equal(t, tt.expected.User, result.User)
-			assert.Equal(t, tt.expected.Name, result.Name)
 		})
 	}
 }

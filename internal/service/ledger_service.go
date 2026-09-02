@@ -2,174 +2,135 @@ package service
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/shopspring/decimal"
-	pb "github.com/squall-chua/go-ledger-microservice/api/v1"
-	"github.com/squall-chua/go-ledger-microservice/internal/accountfmt"
-	"github.com/squall-chua/go-ledger-microservice/internal/middleware"
-	"github.com/squall-chua/go-ledger-microservice/internal/moneyfmt"
-	"github.com/squall-chua/go-ledger-microservice/internal/repository"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
+
+	pb "github.com/squall-chua/go-ledger-microservice/api/v1"
+	"github.com/squall-chua/go-ledger-microservice/internal/accountfmt"
+	"github.com/squall-chua/go-ledger-microservice/internal/moneyfmt"
+	"github.com/squall-chua/go-ledger-microservice/internal/repository"
 )
 
 type ledgerService struct {
 	pb.UnimplementedLedgerServiceServer
-	repo repository.LedgerRepository
+	repo *repository.Repository
 }
 
-func getUserFromContext(ctx context.Context) (userID string, role string) {
-	info, ok := middleware.TokenInfoFromContext(ctx)
-	if !ok {
-		// Default securely if no token info passed
-		return "", "user"
-	}
-
-	if len(info.Roles) > 0 {
-		role = info.Roles[0]
-	} else {
-		role = "user"
-	}
-
-	if info.UserID != "" {
-		userID = info.UserID
-	}
-
-	return userID, role
-}
-
-func NewLedgerService(repo repository.LedgerRepository) pb.LedgerServiceServer {
+func NewLedgerService(repo *repository.Repository) pb.LedgerServiceServer {
 	return &ledgerService{repo: repo}
 }
 
 func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTransactionRequest) (*pb.RecordTransactionResponse, error) {
-	if req.IdempotencyKey == "" {
-		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
-	}
-
-	if req.Date == nil {
-		req.Date = timestamppb.Now()
-	}
-
-	if len(req.Postings) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one posting is required")
-	}
-
-	var sum decimal.Decimal
-	var currency string
-	var pbPostings []*pb.Posting
-
-	for _, p := range req.Postings {
-		if p.Amount == nil {
-			return nil, status.Error(codes.InvalidArgument, "posting amount is required")
-		}
-		if currency == "" {
-			currency = p.Amount.CurrencyCode
-		} else if currency != p.Amount.CurrencyCode {
-			return nil, status.Error(codes.InvalidArgument, "all postings must have the same currency")
-		}
-
-		dec, err := moneyfmt.ToDecimal(p.Amount)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid amount format: %v", err)
-		}
-
-		if dec.IsZero() {
-			return nil, status.Error(codes.InvalidArgument, "posting amount cannot be zero")
-		}
-
-		sum = sum.Add(dec)
-
-		pbPostings = append(pbPostings, &pb.Posting{
-			Account: p.Account,
-			Amount:  p.Amount,
-		})
-	}
-
-	if !sum.IsZero() {
-		return nil, status.Errorf(codes.InvalidArgument, "transaction postings do not balance (sum is %s, expected 0)", sum.String())
-	}
-
-	txn := &pb.Transaction{
-		IdempotencyKey: req.IdempotencyKey,
-		Date:           req.Date,
-		Note:           req.Note,
-		Metadata:       req.Metadata,
-		Postings:       pbPostings,
-	}
-
-	var verifyNames []string
-	for _, acc := range req.VerifyNonNegativeBalances {
-		verifyNames = append(verifyNames, accountfmt.BuildString(acc))
-	}
-
-	err := s.repo.RecordTransaction(ctx, txn, verifyNames)
+	draft, err := draftFromRequest(req)
 	if err != nil {
-		if err == repository.ErrIdempotentHit {
-			return nil, status.Error(codes.AlreadyExists, "idempotency key already exists")
+		return nil, err
+	}
+
+	transaction, err := s.repo.RecordTransaction(ctx, draft)
+	if err != nil {
+		if errors.Is(err, repository.ErrIdempotencyKeyExists) {
+			return nil, status.Error(codes.AlreadyExists, "idempotency key already recorded")
 		}
 		return nil, status.Errorf(codes.Internal, "failed to record transaction: %v", err)
 	}
 
-	return &pb.RecordTransactionResponse{
-		Transaction: txn,
-	}, nil
+	return &pb.RecordTransactionResponse{Transaction: transaction}, nil
 }
 
-func (s *ledgerService) GetAccountBalance(ctx context.Context, req *pb.GetAccountBalanceRequest) (*pb.GetAccountBalanceResponse, error) {
-	if req.Account == nil {
-		return nil, status.Error(codes.InvalidArgument, "account is required")
+// draftFromRequest validates a record request and turns it into a draft the
+// repository can write. Every refusal here is InvalidArgument.
+func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionDraft, error) {
+	var draft repository.TransactionDraft
+
+	if req.IdempotencyKey == "" {
+		return draft, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+	if req.Note == "" {
+		return draft, status.Error(codes.InvalidArgument, "note is required")
+	}
+	if len(req.Postings) < 2 {
+		return draft, status.Error(codes.InvalidArgument, "a transaction needs at least two postings")
 	}
 
-	userID, role := getUserFromContext(ctx)
-	if role == "user" && req.Account.User != userID {
-		return nil, status.Error(codes.PermissionDenied, "users can only query their own account balances")
+	date := time.Now().UTC()
+	if req.Date != nil {
+		date = req.Date.AsTime()
 	}
 
-	accStr := accountfmt.BuildString(req.Account)
-	balances, err := s.repo.GetAccountBalance(ctx, accStr, req.Currency)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get account balance: %v", err)
-	}
+	sum := decimal.Zero
+	currencyCode := ""
+	postings := make([]repository.PostingDraft, 0, len(req.Postings))
 
-	return &pb.GetAccountBalanceResponse{
-		Balances: balances,
-	}, nil
-}
-
-func (s *ledgerService) ListTransactions(ctx context.Context, req *pb.ListTransactionsRequest) (*pb.ListTransactionsResponse, error) {
-	txns, count, err := s.repo.ListTransactions(ctx, req.Filter, req.PageSize, req.PageNumber, req.OrderByDesc)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list transactions: %v", err)
-	}
-
-	return &pb.ListTransactionsResponse{
-		Transactions: txns,
-		TotalCount:   count,
-	}, nil
-}
-
-func (s *ledgerService) ListPostings(ctx context.Context, req *pb.ListPostingsRequest) (*pb.ListPostingsResponse, error) {
-	userID, role := getUserFromContext(ctx)
-	if role == "user" {
-		if req.Filter == nil {
-			req.Filter = &pb.PostingFilter{}
+	for i, posting := range req.Postings {
+		if posting.Account == nil {
+			return draft, status.Errorf(codes.InvalidArgument, "posting %d has no account", i)
 		}
-		if req.Filter.Account == nil {
-			req.Filter.Account = &pb.AccountName{}
+		if posting.Account.Type == pb.AccountType_ACCOUNT_TYPE_UNSPECIFIED {
+			return draft, status.Errorf(codes.InvalidArgument, "posting %d has an unspecified account type", i)
 		}
-		// Force override the user dimension so the search resolves natively to their scope
-		req.Filter.Account.User = userID
+
+		amount, err := moneyfmt.ToDecimal(posting.Amount)
+		if err != nil {
+			return draft, status.Errorf(codes.InvalidArgument, "posting %d has a malformed amount: %v", i, err)
+		}
+		if amount.IsZero() {
+			return draft, status.Errorf(codes.InvalidArgument, "posting %d has a zero amount", i)
+		}
+		if currencyCode == "" {
+			currencyCode = posting.Amount.CurrencyCode
+		} else if currencyCode != posting.Amount.CurrencyCode {
+			return draft, status.Error(codes.InvalidArgument, "a transaction carries a single currency")
+		}
+
+		sum = sum.Add(amount)
+		postings = append(postings, repository.PostingDraft{
+			Account: repository.Account{
+				Type: accountfmt.AccountTypeToString(posting.Account.Type),
+				User: posting.Account.User,
+				Name: posting.Account.Name,
+			},
+			CurrencyCode: posting.Amount.CurrencyCode,
+			Amount:       amount,
+		})
 	}
 
-	postings, count, err := s.repo.ListPostings(ctx, req.Filter, req.PageSize, req.PageNumber, req.OrderByDesc)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list postings: %v", err)
+	if !sum.IsZero() {
+		return draft, status.Errorf(codes.InvalidArgument, "postings do not sum to zero (sum is %s)", sum.String())
 	}
 
-	return &pb.ListPostingsResponse{
-		Postings:   postings,
-		TotalCount: count,
+	return repository.TransactionDraft{
+		IdempotencyKey: req.IdempotencyKey,
+		Date:           date,
+		Note:           req.Note,
+		Metadata:       req.Metadata,
+		Postings:       postings,
 	}, nil
+}
+
+func (s *ledgerService) ListAccountBalances(ctx context.Context, req *pb.ListAccountBalancesRequest) (*pb.ListAccountBalancesResponse, error) {
+	filter := repository.BalanceFilter{CurrencyCode: req.CurrencyCode}
+	if req.Account != nil {
+		filter.Type = accountfmt.AccountTypeToString(req.Account.Type)
+		filter.User = req.Account.User
+		filter.Name = req.Account.Name
+	}
+
+	balances, err := s.repo.ListAccountBalances(ctx, filter)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read account balances: %v", err)
+	}
+
+	return &pb.ListAccountBalancesResponse{Balances: balances}, nil
+}
+
+func (s *ledgerService) ListTransactions(context.Context, *pb.ListTransactionsRequest) (*pb.ListTransactionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "ListTransactions is not implemented on the new schema yet")
+}
+
+func (s *ledgerService) ListPostings(context.Context, *pb.ListPostingsRequest) (*pb.ListPostingsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "ListPostings is not implemented on the new schema yet")
 }
