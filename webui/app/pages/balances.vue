@@ -179,11 +179,7 @@ const fetchData = async () => {
     if (request !== latestRequest) {
       return
     }
-    if (err.response?.status === 401) {
-      useRouter().push('/login')
-    } else {
-      useToast().add({ title: 'Error', description: err.message, color: 'error' })
-    }
+    useToast().add({ title: 'Error', description: err.message, color: 'error' })
   } finally {
     if (request === latestRequest) {
       loading.value = false

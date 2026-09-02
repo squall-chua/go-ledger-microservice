@@ -289,11 +289,7 @@ const fetchData = async () => {
     postings.value = data.postings || []
     totalCount.value = Number(data.totalCount ?? 0)
   } catch (err: any) {
-    if (err.response?.status === 401) {
-      useRouter().push('/login')
-    } else {
-      useToast().add({ title: 'Error fetching postings', description: err.message, color: 'error' })
-    }
+    useToast().add({ title: 'Error fetching postings', description: err.message, color: 'error' })
   } finally {
     loading.value = false
   }

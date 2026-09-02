@@ -289,11 +289,7 @@ const fetchData = async () => {
     if (request !== latestRequest) {
       return
     }
-    if (err.response?.status === 401) {
-      useRouter().push('/login')
-    } else {
-      error.value = err
-    }
+    error.value = err
   } finally {
     if (request === latestRequest) {
       loading.value = false
