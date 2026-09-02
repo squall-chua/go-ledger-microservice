@@ -35,6 +35,11 @@ var ErrIdempotencyKeyExists = errors.New("idempotency key already recorded")
 // account the caller asked to verify with a negative balance.
 var ErrBalanceWouldGoNegative = errors.New("account would go negative")
 
+// ErrBackdated reports that the supplied date precedes the latest posting date
+// of an account the transaction touches. The ledger is forward-only: a mistake
+// is corrected with a reversing transaction, never with a backdated one.
+var ErrBackdated = errors.New("transaction is backdated")
+
 // ApplySchema creates the ledger schema if it is not already present. It is
 // safe to run on every startup.
 func ApplySchema(ctx context.Context, db *sql.DB) error {
@@ -66,10 +71,12 @@ type PostingDraft struct {
 // TransactionDraft is a validated transaction about to be recorded.
 type TransactionDraft struct {
 	IdempotencyKey string
-	Date           time.Time
-	Note           string
-	Metadata       map[string]string
-	Postings       []PostingDraft
+	// Date is the supplied date, or nil when the caller omitted one and the
+	// ledger stamps the date itself.
+	Date     *time.Time
+	Note     string
+	Metadata map[string]string
+	Postings []PostingDraft
 	// VerifyNonNegative are the accounts, matched exactly, that the whole
 	// transaction must not leave with a negative balance.
 	VerifyNonNegative []Account
@@ -172,23 +179,57 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
 
+	// The transaction date: the supplied one, or the clock when the caller
+	// omitted it, which the seeding below then advances past any posting it
+	// would otherwise precede.
+	date := time.Now().UTC()
+	if draft.Date != nil {
+		date = *draft.Date
+	}
+
 	// Take every balance row this transaction touches up front, in one order
 	// all writers agree on, so two transactions moving money between the same
 	// accounts in opposite directions cannot deadlock on each other's rows. The
 	// upsert seeds the row if the account is new and locks it either way; it
 	// leaves the balance alone, the postings loop below applies the amounts.
+	// Seeding a new account with this transaction's own date is what stops the
+	// backdating guard from refusing the first posting to that account.
+	//
+	// `latest` is the latest posting date of any account touched, read back
+	// under those same locks, so no concurrent writer can move it afterwards.
+	var latest time.Time
+	var latestKey balanceKey
 	for _, key := range lockOrder(draft.Postings) {
-		_, err = tx.ExecContext(ctx, `
+		var lastDate time.Time
+		err = tx.QueryRowContext(ctx, `
 			INSERT INTO account_balances
 				(account_type, account_user, account_name, currency_code, balance, last_date)
 			VALUES ($1, $2, $3, $4, 0, $5)
 			ON CONFLICT (account_type, account_user, account_name, currency_code)
-			DO UPDATE SET balance = account_balances.balance`,
-			key.Type, key.User, key.Name, key.CurrencyCode, draft.Date,
-		)
+			DO UPDATE SET balance = account_balances.balance
+			RETURNING last_date`,
+			key.Type, key.User, key.Name, key.CurrencyCode, date,
+		).Scan(&lastDate)
 		if err != nil {
 			return nil, err
 		}
+		if lastDate.After(latest) {
+			latest, latestKey = lastDate, key
+		}
+	}
+
+	switch {
+	case draft.Date == nil:
+		// A stamped date is the transaction's position in the affected
+		// accounts' order rather than a claim about the world, so the ledger
+		// advances it instead of refusing a caller who supplied nothing.
+		if latest.After(date) {
+			date = latest
+		}
+	case date.Before(latest):
+		return nil, fmt.Errorf("%w: %s:%s:%s already has a posting dated %s",
+			ErrBackdated, latestKey.Type, latestKey.User, latestKey.Name,
+			latest.UTC().Format(time.RFC3339Nano))
 	}
 
 	// The unique constraint on idempotency_key is what serializes concurrent
@@ -198,7 +239,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 		INSERT INTO transactions (id, idempotency_key, date, note, metadata, request_fingerprint)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING created_at`,
-		transactionID, draft.IdempotencyKey, draft.Date, draft.Note, metadataJSON, "",
+		transactionID, draft.IdempotencyKey, date, draft.Note, metadataJSON, "",
 	).Scan(&createdAt)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -226,7 +267,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 				updated_at = now()
 			RETURNING balance`,
 			draftPosting.Account.Type, draftPosting.Account.User, draftPosting.Account.Name,
-			draftPosting.CurrencyCode, draftPosting.Amount, draft.Date,
+			draftPosting.CurrencyCode, draftPosting.Amount, date,
 		).Scan(&balance)
 		if err != nil {
 			return nil, err
@@ -247,7 +288,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 			RETURNING created_at`,
 			postingID, transactionID, draftPosting.Account.Type, draftPosting.Account.User,
 			draftPosting.Account.Name, draftPosting.CurrencyCode, draftPosting.Amount,
-			balance, draft.Date,
+			balance, date,
 		).Scan(&postingCreatedAt)
 		if err != nil {
 			return nil, err
@@ -284,7 +325,7 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	return &pb.Transaction{
 		Id:             transactionID.String(),
 		IdempotencyKey: draft.IdempotencyKey,
-		Date:           timestamppb.New(draft.Date),
+		Date:           timestamppb.New(date),
 		Note:           draft.Note,
 		Metadata:       metadata,
 		Postings:       postings,

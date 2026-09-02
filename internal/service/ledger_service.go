@@ -34,7 +34,7 @@ func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTra
 
 	transaction, err := s.repo.RecordTransaction(ctx, draft)
 	if err != nil {
-		if errors.Is(err, repository.ErrBalanceWouldGoNegative) {
+		if errors.Is(err, repository.ErrBalanceWouldGoNegative) || errors.Is(err, repository.ErrBackdated) {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
 		if errors.Is(err, repository.ErrIdempotencyKeyExists) {
@@ -66,9 +66,14 @@ func draftFromRequest(req *pb.RecordTransactionRequest) (repository.TransactionD
 		return draft, status.Error(codes.InvalidArgument, "a transaction needs at least two postings")
 	}
 
-	date := time.Now().UTC()
-	if req.Date != nil {
-		date = req.Date.AsTime()
+	// A supplied date is a claim about when the event happened, and is refused
+	// more than five minutes ahead of now: one bad client clock would otherwise
+	// park a posting in the future and refuse every later write to that account
+	// as backdated. An omitted date is left for the ledger to stamp, under the
+	// row locks where it can see what it has to advance past.
+	date := dateOrNil(req.Date)
+	if date != nil && date.After(time.Now().Add(5*time.Minute)) {
+		return draft, status.Error(codes.InvalidArgument, "date is more than five minutes in the future")
 	}
 
 	sum := decimal.Zero

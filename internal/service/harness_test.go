@@ -139,14 +139,18 @@ type harness struct {
 	t      *testing.T
 	client pb.LedgerServiceClient
 	ctx    context.Context
+	// db is the same database the service writes to, for the one test that has
+	// to hold a row lock from outside the service.
+	db *sql.DB
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 
+	db := newDatabase(t)
 	validator := middleware.NewJwtTokenValidator(testJWTSecret)
 	server := grpc.NewServer(grpc.UnaryInterceptor(middleware.AuthInterceptor(validator)))
-	pb.RegisterLedgerServiceServer(server, NewLedgerService(repository.New(newDatabase(t))))
+	pb.RegisterLedgerServiceServer(server, NewLedgerService(repository.New(db)))
 
 	listener := bufconn.Listen(1024 * 1024)
 	go func() {
@@ -167,6 +171,7 @@ func newHarness(t *testing.T) *harness {
 		t:      t,
 		client: pb.NewLedgerServiceClient(conn),
 		ctx:    callerContext(t, t.Context(), "ledger:read", "ledger:write"),
+		db:     db,
 	}
 }
 

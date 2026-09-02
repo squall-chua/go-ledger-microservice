@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -555,6 +556,98 @@ func TestConcurrentOppositeTransfersDoNotDeadlock(t *testing.T) {
 		require.NoError(t, err, "concurrent opposite transfers must all succeed")
 	}
 	assertMoney(t, usd(1000, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{Account: exactly(cash)}), cash))
+}
+
+// A write takes the balance row of every account it touches, so two writes to
+// one account wait for each other while two writes to different accounts do
+// not. The lock is held here from outside the service, on the same database, so
+// the two halves can be told apart rather than raced.
+func TestAWriteBlocksOnlyOnTheAccountsItTouches(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(transfer("opening", "opening deposit", opening, cash, usd(100, 0)))
+
+	locker, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer locker.Rollback() //nolint:errcheck // releasing the lock is the point
+	_, err = locker.ExecContext(t.Context(),
+		"SELECT 1 FROM account_balances WHERE account_name = $1 FOR UPDATE", cash.Name)
+	require.NoError(t, err)
+
+	// Savings is a different account, so this write never meets that lock.
+	elsewhere, cancelElsewhere := context.WithTimeout(h.ctx, 30*time.Second)
+	defer cancelElsewhere()
+	_, err = h.client.RecordTransaction(elsewhere,
+		transfer("elsewhere", "into savings", opening, savings, usd(1, 0)))
+	require.NoError(t, err, "a write to a different account must not wait")
+
+	// A write to the locked account serializes behind it, so it gets no further
+	// than its deadline.
+	behind, cancelBehind := context.WithTimeout(h.ctx, time.Second)
+	defer cancelBehind()
+	_, err = h.client.RecordTransaction(behind,
+		transfer("behind", "into checking", opening, cash, usd(1, 0)))
+	requireCode(t, err, codes.DeadlineExceeded)
+}
+
+func TestABackdatedTransactionIsRefused(t *testing.T) {
+	h := newHarness(t)
+	h.mustRecord(onDay(2, "key-2", "a deposit", opening, cash, usd(50, 0)))
+
+	_, err := h.record(onDay(1, "key-1", "the day before", opening, cash, usd(10, 0)))
+	requireCode(t, err, codes.FailedPrecondition)
+	assert.Contains(t, err.Error(), "ASSETS:alice:Checking", "the refusal names the account that blocked it")
+
+	// The refusal leaves no trace, and the same date is fine on accounts that
+	// have no later posting.
+	assertMoney(t, usd(50, 0), balanceOf(t, h.balances(&pb.ListAccountBalancesRequest{}), cash))
+	h.mustRecord(onDay(1, "key-1", "the day before, elsewhere", savings, rent, usd(10, 0)))
+}
+
+func TestTheFirstPostingToANewAccountIsNeverBackdated(t *testing.T) {
+	h := newHarness(t)
+
+	// Both accounts are brand new and the date is years old. Nothing precedes
+	// this transaction, so nothing can refuse it.
+	old := transfer("old", "an old event", opening, cash, usd(10, 0))
+	old.Date = timestamppb.New(time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC))
+
+	transaction := h.mustRecord(old)
+	assert.Equal(t, 2020, transaction.Date.AsTime().Year())
+}
+
+func TestASuppliedDateTooFarAheadIsRefused(t *testing.T) {
+	h := newHarness(t)
+
+	tooFar := transfer("too-far", "a broken clock", opening, cash, usd(1, 0))
+	tooFar.Date = timestamppb.New(time.Now().Add(6 * time.Minute))
+	_, err := h.record(tooFar)
+	requireCode(t, err, codes.InvalidArgument)
+
+	// Inside the five-minute tolerance a date ahead of now is accepted: clocks
+	// between the caller and the ledger drift.
+	nearby := transfer("nearby", "a drifting clock", opening, cash, usd(1, 0))
+	nearby.Date = timestamppb.New(time.Now().Add(4 * time.Minute))
+	h.mustRecord(nearby)
+}
+
+func TestAnOmittedDateIsStampedAndNeverRefused(t *testing.T) {
+	h := newHarness(t)
+
+	// A supplied date inside the tolerance leaves Checking with a posting ahead
+	// of the clock. The next caller omits its date and is stamped past that
+	// posting rather than refused for a clock it does not control.
+	ahead := time.Now().Add(4 * time.Minute).UTC().Truncate(time.Millisecond)
+	drifted := transfer("ahead", "a drifting clock", opening, cash, usd(10, 0))
+	drifted.Date = timestamppb.New(ahead)
+	h.mustRecord(drifted)
+
+	stamped := h.mustRecord(transfer("stamped", "no date at all", opening, cash, usd(5, 0)))
+	assert.False(t, stamped.Date.AsTime().Before(ahead),
+		"a stamped date advances past the latest posting of the accounts it touches")
+
+	// With no posting ahead of the clock, the stamp is simply now.
+	fresh := h.mustRecord(transfer("fresh", "untouched accounts", savings, rent, usd(1, 0)))
+	assert.WithinDuration(t, time.Now(), fresh.Date.AsTime(), time.Minute)
 }
 
 func TestCurrencyCodeIsCaseInsensitive(t *testing.T) {
