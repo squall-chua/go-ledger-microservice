@@ -228,7 +228,7 @@ const totalCount = ref(0)
 const isFiltersOpen = ref(false)
 
 const accountTypeOptions = [
-  { label: 'All account types', value: '' },
+  { label: 'All account types', value: 'ALL' },
   ...ACCOUNT_TYPES
 ]
 
@@ -238,7 +238,7 @@ const sortOptions = [
 ]
 
 const emptyFilters = (): RegisterFilters => ({
-  accountType: '',
+  accountType: 'ALL',
   user: '',
   name: '',
   currency: 'ALL',

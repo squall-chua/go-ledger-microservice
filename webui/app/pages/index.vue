@@ -243,7 +243,12 @@ const formatCurrency = (amount: number, currency: string = 'USD') => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
 }
 
+// The currency select fetches on its own, so two quick changes leave two
+// requests in flight. Only the newest one may touch the tiles and the table.
+let latestRequest = 0
+
 const fetchData = async () => {
+  const request = ++latestRequest
   loading.value = true
   error.value = null
   try {
@@ -257,35 +262,42 @@ const fetchData = async () => {
       })
     })
 
-    let a = 0, r = 0, e = 0
-    if (data && data.balances) {
-      balances.value = data.balances
-      for (const balance of data.balances) {
-        const totalAmount = moneyToNumber(balance.balance)
+    if (request !== latestRequest) {
+      return
+    }
 
-        switch (balance.account?.type) {
-          case 'ACCOUNT_TYPE_ASSETS':
-            a += totalAmount
-            break
-          case 'ACCOUNT_TYPE_INCOMES':
-            r += totalAmount
-            break
-          case 'ACCOUNT_TYPE_EXPENSES':
-            e += totalAmount
-            break
-        }
+    let a = 0, r = 0, e = 0
+    balances.value = data.balances || []
+    for (const balance of balances.value) {
+      const totalAmount = moneyToNumber(balance.balance)
+
+      switch (balance.account?.type) {
+        case 'ACCOUNT_TYPE_ASSETS':
+          a += totalAmount
+          break
+        case 'ACCOUNT_TYPE_INCOMES':
+          r += totalAmount
+          break
+        case 'ACCOUNT_TYPE_EXPENSES':
+          e += totalAmount
+          break
       }
     }
 
     totals.value = { assets: a, revenue: r, expenses: e }
   } catch (err: any) {
+    if (request !== latestRequest) {
+      return
+    }
     if (err.response?.status === 401) {
       useRouter().push('/login')
     } else {
       error.value = err
     }
   } finally {
-    loading.value = false
+    if (request === latestRequest) {
+      loading.value = false
+    }
   }
 }
 
