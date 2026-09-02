@@ -34,6 +34,12 @@ func (s *ledgerService) RecordTransaction(ctx context.Context, req *pb.RecordTra
 
 	transaction, replayed, err := s.repo.RecordTransaction(ctx, draft)
 	if err != nil {
+		// The date rule lives with the row locks that judge it, so a date the
+		// caller should never have sent comes back from there too, and is
+		// reported as the InvalidArgument it is.
+		if errors.Is(err, repository.ErrDateTooFarAhead) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
 		if errors.Is(err, repository.ErrBalanceWouldGoNegative) || errors.Is(err, repository.ErrBackdated) {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}

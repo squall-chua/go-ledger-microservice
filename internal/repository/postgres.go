@@ -217,17 +217,11 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
 
-	// The transaction date: the supplied one, or the clock when the caller
-	// omitted it, which the seeding below then advances past any posting it
-	// would otherwise precede. The clock is truncated to the microsecond the
-	// column resolves to, both so the date returned is the date the listings
-	// read back, and so "advance past `latest`" is judged on the value that
-	// actually lands rather than on sub-microsecond digits storage drops. A
-	// supplied date is already truncated where the draft is built.
-	date := time.Now().UTC().Truncate(time.Microsecond)
-	if draft.Date != nil {
-		date = *draft.Date
-	}
+	// The transaction date before the locks below say what it has to clear:
+	// the supplied one, or the clock when the caller omitted it. The seeding
+	// below writes it, and resolveDate settles it. See date.go for the rule.
+	now := time.Now()
+	date := provisionalDate(draft.Date, now)
 
 	// Take every balance row this transaction touches up front, in one order
 	// all writers agree on, so two transactions moving money between the same
@@ -260,24 +254,17 @@ func (r *Repository) RecordTransaction(ctx context.Context, draft TransactionDra
 		}
 	}
 
-	switch {
-	case draft.Date == nil:
-		// A stamped date is the transaction's position in the affected
-		// accounts' order rather than a claim about the world, so the ledger
-		// advances it instead of refusing a caller who supplied nothing. It
-		// lands strictly past `latest`, by the microsecond a timestamptz
-		// column resolves to, so a run of stamped transactions behind one
-		// posting parked ahead of the clock gets a date each rather than
-		// collapsing onto that posting's date.
-		if !date.After(latest) {
-			date = latest.Add(time.Microsecond)
+	date, err = resolveDate(draft.Date, latest, now)
+	if err != nil {
+		if !errors.Is(err, ErrBackdated) {
+			return nil, false, err
 		}
-	case date.Before(latest):
 		// The check above the write path sees only a committed transaction, so a
 		// retry whose original committed while this attempt waited for the locks
 		// above arrives here instead. Consult the key once more before refusing:
 		// a caller retrying is owed the original transaction, not the news that
-		// the date it already recorded under is backdated.
+		// the date it already recorded under is backdated. The account named is
+		// the one holding `latest`, which only this side of the rule knows.
 		tx.Rollback() //nolint:errcheck // the original is read outside this aborted transaction
 		replayed, err := r.recordedUnder(ctx, draft.IdempotencyKey, fingerprint)
 		if replayed != nil || err != nil {
